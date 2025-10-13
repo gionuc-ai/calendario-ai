@@ -14,7 +14,7 @@ const firebaseConfig = {
   appId: "1:233705052175:web:3adefa53a9c6c429b3ab7a"
 };
 
-// FIX #1: Inizializza Firebase solo una volta
+// Inizializza Firebase solo una volta
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -38,6 +38,8 @@ const CalendarioAI = () => {
   const [showEventModal, setShowEventModal] = useState(false);
   const [showHabitModal, setShowHabitModal] = useState(false);
   const [editingHabit, setEditingHabit] = useState(null);
+  const [editingEvent, setEditingEvent] = useState(null);
+  const [customCategory, setCustomCategory] = useState('');
   const [chatMessages, setChatMessages] = useState([
     { role: 'assistant', content: 'Benvenuto in Calendario AI; io sono il tuo personale assistente e ti aiuterò ad organizzare le tue settimane nel modo più efficiente possibile. Per prima cosa se non l\'hai ancora fatto inserisci le tue abitudini nella sezione apposita.' }
   ]);
@@ -72,7 +74,7 @@ const CalendarioAI = () => {
     return () => unsubscribe();
   }, []);
 
-  // FIX #2: Debounce auto-save con useCallback
+  // Debounce auto-save
   const saveUserData = useCallback(async () => {
     if (!user) return;
     try {
@@ -87,12 +89,12 @@ const CalendarioAI = () => {
     }
   }, [user, habits, events, darkMode]);
 
-  // FIX #3: Debounce per evitare troppe scritture
+  // Debounce per evitare troppe scritture
   useEffect(() => {
     if (user && habits.length >= 0) {
       const timer = setTimeout(() => {
         saveUserData();
-      }, 2000); // Salva dopo 2 secondi di inattività
+      }, 2000);
       
       return () => clearTimeout(timer);
     }
@@ -225,7 +227,6 @@ const CalendarioAI = () => {
     return generatedEvents;
   }, []);
 
-  // FIX #4: Usa callback form per evitare dipendenze circolari
   useEffect(() => {
     setEvents(prevEvents => {
       const habitEvents = habits.flatMap(h => generateEventsFromHabit(h));
@@ -236,10 +237,26 @@ const CalendarioAI = () => {
 
   const addEvent = () => {
     if (newEvent.title && newEvent.date) {
-      setEvents(prev => [...prev, { ...newEvent, id: Date.now(), fromHabit: false }]);
+      if (editingEvent) {
+        setEvents(prev => prev.map(e => e.id === editingEvent.id ? { ...newEvent, id: editingEvent.id, fromHabit: false } : e));
+        setEditingEvent(null);
+      } else {
+        setEvents(prev => [...prev, { ...newEvent, id: Date.now(), fromHabit: false }]);
+      }
       setNewEvent({ title: '', date: '', time: '', category: 'personale', description: '' });
       setShowEventModal(false);
+      setCustomCategory('');
     }
+  };
+
+  const editEvent = (event) => {
+    setNewEvent(event);
+    setEditingEvent(event);
+    setShowEventModal(true);
+  };
+
+  const deleteEvent = (id) => {
+    setEvents(prev => prev.filter(e => e.id !== id));
   };
 
   const addHabit = () => {
@@ -259,17 +276,87 @@ const CalendarioAI = () => {
     setHabits(prev => prev.filter(h => h.id !== id));
   };
 
+  const formatDateFromAI = (dateStr) => {
+    const parts = dateStr.split(/[\/\-]/);
+    const year = new Date().getFullYear();
+    return `${year}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+  };
+
   const processAICommand = (message) => {
     const lower = message.toLowerCase();
     
+    // Crea evento
+    if (lower.includes('crea evento') || lower.includes('aggiungi evento') || lower.includes('nuovo evento')) {
+      const titleMatch = message.match(/(?:evento|chiamato|titolo)[:\s]+"([^"]+)"/i) || 
+                        message.match(/(?:evento|chiamato|titolo)[:\s]+([^\s,]+(?:\s+[^\s,]+)*?)(?=\s+(?:il|per|alle|categoria)|$)/i);
+      const dateMatch = message.match(/(?:il|per)\s+(\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?)/i);
+      const timeMatch = message.match(/alle?\s+(\d{1,2}):?(\d{2})?/i);
+      const categoryMatch = message.match(/categoria[:\s]+(lavoro|sport|studio|personale|[^\s,]+)/i);
+      
+      if (titleMatch) {
+        const newEventData = {
+          title: titleMatch[1],
+          date: dateMatch ? formatDateFromAI(dateMatch[1]) : new Date().toISOString().split('T')[0],
+          time: timeMatch ? `${timeMatch[1].padStart(2, '0')}:${timeMatch[2] || '00'}` : '',
+          category: categoryMatch ? categoryMatch[1].toLowerCase() : 'personale',
+          description: '',
+          id: Date.now(),
+          fromHabit: false
+        };
+        setEvents(prev => [...prev, newEventData]);
+        return `Ho creato l'evento "${newEventData.title}" per il ${newEventData.date}${newEventData.time ? ` alle ${newEventData.time}` : ''}.`;
+      }
+      return 'Per creare un evento, specifica almeno il titolo. Es: "Crea evento: Riunione il 15/03 alle 10:00 categoria lavoro"';
+    }
+    
+    // Modifica evento
+    if (lower.includes('modifica evento') || lower.includes('cambia evento')) {
+      const numMatch = message.match(/evento\s+(\d+)/i);
+      if (numMatch) {
+        const eventIndex = parseInt(numMatch[1]) - 1;
+        const manualEvents = events.filter(e => !e.fromHabit);
+        if (manualEvents[eventIndex]) {
+          const titleMatch = message.match(/titolo[:\s]+"([^"]+)"/i);
+          const dateMatch = message.match(/data[:\s]+(\d{1,2}[\/\-]\d{1,2})/i);
+          const timeMatch = message.match(/ora[:\s]+(\d{1,2}):?(\d{2})?/i);
+          
+          const updatedEvent = { ...manualEvents[eventIndex] };
+          if (titleMatch) updatedEvent.title = titleMatch[1];
+          if (dateMatch) updatedEvent.date = formatDateFromAI(dateMatch[1]);
+          if (timeMatch) updatedEvent.time = `${timeMatch[1].padStart(2, '0')}:${timeMatch[2] || '00'}`;
+          
+          setEvents(prev => prev.map(e => e.id === updatedEvent.id ? updatedEvent : e));
+          return `Ho modificato l'evento "${updatedEvent.title}".`;
+        }
+      }
+      return 'Specifica quale evento modificare. Es: "Modifica evento 1 titolo: Nuovo titolo"';
+    }
+    
+    // Elimina evento
+    if (lower.includes('elimina evento') || lower.includes('cancella evento')) {
+      const numMatch = message.match(/evento\s+(\d+)/i);
+      if (numMatch) {
+        const eventIndex = parseInt(numMatch[1]) - 1;
+        const manualEvents = events.filter(e => !e.fromHabit);
+        if (manualEvents[eventIndex]) {
+          setEvents(prev => prev.filter(e => e.id !== manualEvents[eventIndex].id));
+          return `Ho eliminato l'evento "${manualEvents[eventIndex].title}".`;
+        }
+      }
+      return 'Specifica quale evento eliminare. Es: "Elimina evento 1"';
+    }
+    
+    // Elimina abitudine
     if (lower.includes('elimina abitudine')) {
       const numMatch = message.match(/\d+/);
       if (numMatch && habits[numMatch[0] - 1]) {
+        const habitTitle = habits[numMatch[0] - 1].title;
         deleteHabit(habits[numMatch[0] - 1].id);
-        return `Ho eliminato l'abitudine ${numMatch[0]}: "${habits[numMatch[0] - 1].title}"`;
+        return `Ho eliminato l'abitudine ${numMatch[0]}: "${habitTitle}"`;
       }
     }
     
+    // Attiva/Disattiva abitudine
     if (lower.includes('disattiva abitudine') || lower.includes('attiva abitudine')) {
       const numMatch = message.match(/\d+/);
       if (numMatch && habits[numMatch[0] - 1]) {
@@ -279,16 +366,33 @@ const CalendarioAI = () => {
       }
     }
     
-    if (lower.includes('analisi') || lower.includes('come va')) {
+    // Lista eventi
+    if (lower.includes('lista eventi') || lower.includes('mostra eventi') || lower.includes('quali eventi')) {
+      const manualEvents = events.filter(e => !e.fromHabit);
+      if (manualEvents.length > 0) {
+        let response = 'Ecco i tuoi eventi:\n';
+        manualEvents.slice(0, 5).forEach((e, i) => {
+          response += `${i + 1}. ${e.title} - ${e.date}${e.time ? ` alle ${e.time}` : ''}\n`;
+        });
+        return response;
+      }
+      return 'Non hai eventi manuali al momento.';
+    }
+    
+    // Analisi calendario
+    if (lower.includes('analisi') || lower.includes('come va') || lower.includes('statistiche')) {
       const totalEvents = events.length;
-      return `Hai ${totalEvents} eventi nel calendario. La tua settimana sembra ben organizzata! Continua così.`;
+      const activeHabits = habits.filter(h => h.active).length;
+      return `📊 Riepilogo:\n• ${totalEvents} eventi totali nel calendario\n• ${activeHabits} abitudini attive\n• La tua settimana è ben organizzata!`;
     }
     
-    if (lower.includes('slot liberi') || lower.includes('tempo libero')) {
-      return `Ho analizzato il tuo calendario. Hai diversi slot liberi nelle mattinate e nei fine settimana. Vuoi che ti proponga delle attività?`;
+    // Slot liberi
+    if (lower.includes('slot liberi') || lower.includes('tempo libero') || lower.includes('quando sono libero')) {
+      return `🕐 Analisi tempo libero:\nHai diversi slot disponibili nelle mattinate e nei weekend. Ti consiglio di programmare attività rilassanti o hobby in questi momenti!`;
     }
     
-    return `Ho capito la tua richiesta. Al momento posso aiutarti con: eliminare/attivare/disattivare abitudini, analizzare il calendario, trovare slot liberi. Cosa posso fare per te?`;
+    // Messaggio di aiuto
+    return `🤖 Posso aiutarti con:\n\n📅 Eventi: creare, modificare, eliminare e visualizzare eventi\n⏰ Abitudini: attivare, disattivare ed eliminare abitudini\n📊 Analisi: statistiche e informazioni sul tuo calendario\n🔍 Ricerca: trovare slot liberi e suggerire ottimizzazioni\n\nProva a chiedermi: "Crea evento: Riunione il 15/03 alle 10:00" oppure "Mostra i miei eventi"`;
   };
 
   const sendMessage = () => {
@@ -302,7 +406,6 @@ const CalendarioAI = () => {
     }
   };
 
-  // FIX #5: Ottimizza con useMemo
   const monthDays = useMemo(() => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
@@ -601,7 +704,7 @@ const CalendarioAI = () => {
                               <div
                                 key={event.id}
                                 className="text-xs p-1 rounded truncate"
-                                style={{ backgroundColor: categories[event.category] + '40' }}
+                                style={{ backgroundColor: (categories[event.category] || '#8b5cf6') + '40' }}
                               >
                                 {event.title}
                               </div>
@@ -636,7 +739,14 @@ const CalendarioAI = () => {
                       const today = isToday(day);
                       
                       return (
-                        <div key={i} className={`${darkMode ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg p-3 min-h-32 ${today ? 'ring-2 ring-blue-500' : ''}`}>
+                        <div 
+                          key={i} 
+                          onClick={() => {
+                            setCurrentDate(day);
+                            setViewMode('day');
+                          }}
+                          className={`${darkMode ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg p-3 min-h-32 cursor-pointer hover:ring-2 hover:ring-blue-300 transition ${today ? 'ring-2 ring-blue-500' : ''}`}
+                        >
                           <div className="text-center mb-2">
                             <div className="text-xs opacity-60">
                               {day.toLocaleDateString('it-IT', { weekday: 'short' })}
@@ -648,7 +758,7 @@ const CalendarioAI = () => {
                               <div
                                 key={event.id}
                                 className="text-xs p-1 rounded"
-                                style={{ backgroundColor: categories[event.category] + '40', borderLeft: `3px solid ${categories[event.category]}` }}
+                                style={{ backgroundColor: (categories[event.category] || '#8b5cf6') + '40', borderLeft: `3px solid ${categories[event.category] || '#8b5cf6'}` }}
                               >
                                 <div className="font-medium truncate">{event.title}</div>
                                 {event.time && <div className="opacity-75">{event.time}</div>}
@@ -683,7 +793,7 @@ const CalendarioAI = () => {
                           <div
                             key={event.id}
                             className={`p-4 rounded-lg ${darkMode ? 'bg-gray-600' : 'bg-white'} border-l-4`}
-                            style={{ borderColor: categories[event.category] }}
+                            style={{ borderColor: categories[event.category] || '#8b5cf6' }}
                           >
                             <div className="flex items-start justify-between">
                               <div className="flex-1">
@@ -698,10 +808,28 @@ const CalendarioAI = () => {
                                   <p className="mt-2 text-sm opacity-75">{event.description}</p>
                                 )}
                               </div>
-                              <div
-                                className="w-4 h-4 rounded-full"
-                                style={{ backgroundColor: categories[event.category] }}
-                              />
+                              <div className="flex items-center gap-2">
+                                <div
+                                  className="w-4 h-4 rounded-full"
+                                  style={{ backgroundColor: categories[event.category] || '#8b5cf6' }}
+                                />
+                                {!event.fromHabit && (
+                                  <>
+                                    <button
+                                      onClick={() => editEvent(event)}
+                                      className="p-2 hover:bg-gray-500 rounded transition"
+                                    >
+                                      <Edit2 className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                      onClick={() => deleteEvent(event.id)}
+                                      className="p-2 hover:bg-gray-500 rounded text-red-500 transition"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </>
+                                )}
+                              </div>
                             </div>
                           </div>
                         ))
@@ -731,7 +859,7 @@ const CalendarioAI = () => {
                           </div>
                           <div
                             className="w-3 h-3 rounded-full mt-1"
-                            style={{ backgroundColor: categories[event.category] }}
+                            style={{ backgroundColor: categories[event.category] || '#8b5cf6' }}
                           />
                         </div>
                       </div>
@@ -790,7 +918,7 @@ const CalendarioAI = () => {
                         <h3 className="font-semibold">{habit.title}</h3>
                         <div
                           className="w-2 h-2 rounded-full"
-                          style={{ backgroundColor: categories[habit.category] }}
+                          style={{ backgroundColor: categories[habit.category] || '#8b5cf6' }}
                         />
                       </div>
                       <p className="text-sm opacity-75">{habit.original}</p>
@@ -877,7 +1005,7 @@ const CalendarioAI = () => {
                 {Object.entries(getWeeklyStats).map(([cat, hours]) => (
                   <div key={cat} className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: categories[cat] }} />
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: categories[cat] || '#8b5cf6' }} />
                       <span className="capitalize">{cat}</span>
                     </div>
                     <span className="font-semibold">{hours.toFixed(1)}h</span>
@@ -911,8 +1039,13 @@ const CalendarioAI = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className={`${cardClass} rounded-xl p-6 max-w-md w-full`}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-bold">Nuovo Evento</h3>
-              <button onClick={() => setShowEventModal(false)}>
+              <h3 className="text-xl font-bold">{editingEvent ? 'Modifica Evento' : 'Nuovo Evento'}</h3>
+              <button onClick={() => {
+                setShowEventModal(false);
+                setEditingEvent(null);
+                setCustomCategory('');
+                setNewEvent({ title: '', date: '', time: '', category: 'personale', description: '' });
+              }}>
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -940,15 +1073,39 @@ const CalendarioAI = () => {
                 className={`w-full px-4 py-2 rounded-lg border ${borderClass} ${darkMode ? 'bg-gray-700' : 'bg-white'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
               />
               
-              <select
-                value={newEvent.category}
-                onChange={(e) => setNewEvent({ ...newEvent, category: e.target.value })}
-                className={`w-full px-4 py-2 rounded-lg border ${borderClass} ${darkMode ? 'bg-gray-700' : 'bg-white'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
-              >
-                {Object.keys(categories).map(cat => (
-                  <option key={cat} value={cat}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</option>
-                ))}
-              </select>
+              <div>
+                <select
+                  value={newEvent.category}
+                  onChange={(e) => {
+                    if (e.target.value === 'custom') {
+                      setCustomCategory('');
+                      setNewEvent({ ...newEvent, category: '' });
+                    } else {
+                      setNewEvent({ ...newEvent, category: e.target.value });
+                      setCustomCategory('');
+                    }
+                  }}
+                  className={`w-full px-4 py-2 rounded-lg border ${borderClass} ${darkMode ? 'bg-gray-700' : 'bg-white'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                >
+                  {Object.keys(categories).map(cat => (
+                    <option key={cat} value={cat}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</option>
+                  ))}
+                  <option value="custom">+ Categoria Personalizzata</option>
+                </select>
+                
+                {(newEvent.category === '' || newEvent.category === 'custom' || !categories[newEvent.category]) && (
+                  <input
+                    type="text"
+                    placeholder="Nome categoria personalizzata"
+                    value={customCategory || newEvent.category}
+                    onChange={(e) => {
+                      setCustomCategory(e.target.value);
+                      setNewEvent({ ...newEvent, category: e.target.value });
+                    }}
+                    className={`w-full px-4 py-2 rounded-lg border ${borderClass} ${darkMode ? 'bg-gray-700' : 'bg-white'} focus:outline-none focus:ring-2 focus:ring-blue-500 mt-2`}
+                  />
+                )}
+              </div>
               
               <textarea
                 placeholder="Descrizione (opzionale)"
@@ -961,7 +1118,7 @@ const CalendarioAI = () => {
                 onClick={addEvent}
                 className="w-full py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
               >
-                Crea Evento
+                {editingEvent ? 'Salva Modifiche' : 'Crea Evento'}
               </button>
             </div>
           </div>
