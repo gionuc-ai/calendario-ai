@@ -1,7 +1,33 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Clock, TrendingUp, Settings, Plus, X, Edit2, Power, Trash2, MessageSquare, BarChart3, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Calendar, Clock, TrendingUp, Settings, Plus, X, Edit2, Power, Trash2, MessageSquare, BarChart3, ChevronLeft, ChevronRight, LogOut, User } from 'lucide-react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, doc, setDoc, getDoc, collection, updateDoc } from 'firebase/firestore';
+
+// Configurazione Firebase - DA SOSTITUIRE CON LA TUA
+const firebaseConfig = {
+  apiKey: "AIzaSyCVBoIl4nVxPOi7qgq1d0wp_n5c4GqygxA",
+  authDomain: "calendario-ai-d976e.firebaseapp.com",
+  projectId: "calendario-ai-d976e",
+  storageBucket: "calendario-ai-d976e.firebasestorage.app",
+  messagingSenderId: "233705052175",
+  appId: "1:233705052175:web:3adefa53a9c6c429b3ab7a"
+};
+
+// Inizializza Firebase
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
 
 const CalendarioAI = () => {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [isLogin, setIsLogin] = useState(true);
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+  
   const [activeTab, setActiveTab] = useState('home');
   const [darkMode, setDarkMode] = useState(false);
   const [viewMode, setViewMode] = useState('month');
@@ -32,6 +58,87 @@ const CalendarioAI = () => {
     sport: '#10b981',
     studio: '#f59e0b',
     personale: '#8b5cf6'
+  };
+
+  // Controlla lo stato di autenticazione
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      setUser(currentUser);
+      if (currentUser) {
+        await loadUserData(currentUser.uid);
+      }
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Salva i dati dell'utente su Firebase quando cambiano
+  useEffect(() => {
+    if (user && habits.length > 0) {
+      saveUserData();
+    }
+  }, [habits, events, user]);
+
+  const loadUserData = async (userId) => {
+    try {
+      const userDoc = await getDoc(doc(db, 'users', userId));
+      if (userDoc.exists()) {
+        const data = userDoc.data();
+        setHabits(data.habits || []);
+        setEvents(data.events || []);
+        setDarkMode(data.darkMode || false);
+      }
+    } catch (error) {
+      console.error('Errore nel caricamento dati:', error);
+    }
+  };
+
+  const saveUserData = async () => {
+    if (!user) return;
+    try {
+      await setDoc(doc(db, 'users', user.uid), {
+        habits,
+        events: events.filter(e => !e.fromHabit),
+        darkMode,
+        updatedAt: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Errore nel salvataggio dati:', error);
+    }
+  };
+
+  const handleAuth = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    
+    try {
+      if (isLogin) {
+        await signInWithEmailAndPassword(auth, authEmail, authPassword);
+      } else {
+        await createUserWithEmailAndPassword(auth, authEmail, authPassword);
+      }
+      setShowAuthModal(false);
+      setAuthEmail('');
+      setAuthPassword('');
+    } catch (error) {
+      if (error.code === 'auth/email-already-in-use') {
+        setAuthError('Email già in uso');
+      } else if (error.code === 'auth/weak-password') {
+        setAuthError('Password troppo debole (minimo 6 caratteri)');
+      } else if (error.code === 'auth/user-not-found') {
+        setAuthError('Utente non trovato');
+      } else if (error.code === 'auth/wrong-password') {
+        setAuthError('Password errata');
+      } else {
+        setAuthError('Errore durante l\'autenticazione');
+      }
+    }
+  };
+
+  const handleLogout = async () => {
+    await signOut(auth);
+    setHabits([]);
+    setEvents([]);
   };
 
   const parseHabitInput = (input) => {
@@ -279,6 +386,84 @@ const CalendarioAI = () => {
   const cardClass = darkMode ? 'bg-gray-800' : 'bg-white';
   const borderClass = darkMode ? 'border-gray-700' : 'border-gray-200';
 
+  // Schermata di caricamento
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <Calendar className="w-16 h-16 text-blue-500 mx-auto mb-4 animate-pulse" />
+          <p className="text-gray-600">Caricamento...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Schermata di login
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full">
+          <div className="text-center mb-8">
+            <Calendar className="w-16 h-16 text-blue-500 mx-auto mb-4" />
+            <h1 className="text-3xl font-bold text-gray-900">Calendario AI</h1>
+            <p className="text-gray-600 mt-2">Organizza la tua vita con intelligenza artificiale</p>
+          </div>
+
+          <form onSubmit={handleAuth} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+              <input
+                type="email"
+                value={authEmail}
+                onChange={(e) => setAuthEmail(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="tua@email.com"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
+              <input
+                type="password"
+                value={authPassword}
+                onChange={(e) => setAuthPassword(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="••••••••"
+                required
+              />
+            </div>
+
+            {authError && (
+              <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm">
+                {authError}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              className="w-full bg-blue-500 text-white py-3 rounded-lg hover:bg-blue-600 transition font-medium"
+            >
+              {isLogin ? 'Accedi' : 'Registrati'}
+            </button>
+          </form>
+
+          <div className="mt-6 text-center">
+            <button
+              onClick={() => {
+                setIsLogin(!isLogin);
+                setAuthError('');
+              }}
+              className="text-blue-500 hover:text-blue-600 text-sm font-medium"
+            >
+              {isLogin ? 'Non hai un account? Registrati' : 'Hai già un account? Accedi'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`min-h-screen ${bgClass} transition-colors duration-300`}>
       <header className={`${cardClass} border-b ${borderClass} px-6 py-4`}>
@@ -287,12 +472,24 @@ const CalendarioAI = () => {
             <Calendar className="w-7 h-7 text-blue-500" />
             <h1 className="text-2xl font-bold">Calendario AI</h1>
           </div>
-          <button
-            onClick={() => setShowSettings(true)}
-            className={`p-2 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-100'} hover:opacity-80 transition`}
-          >
-            <Settings className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-3">
+            <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
+              <User className="w-4 h-4" />
+              <span className="text-sm">{user.email}</span>
+            </div>
+            <button
+              onClick={() => setShowSettings(true)}
+              className={`p-2 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-100'} hover:opacity-80 transition`}
+            >
+              <Settings className="w-5 h-5" />
+            </button>
+            <button
+              onClick={handleLogout}
+              className="p-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition"
+            >
+              <LogOut className="w-5 h-5" />
+            </button>
+          </div>
         </div>
       </header>
 
@@ -381,7 +578,11 @@ const CalendarioAI = () => {
                       return (
                         <div
                           key={i}
-                          className={`${darkMode ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg p-2 min-h-24 ${
+                          onClick={() => {
+                            setCurrentDate(day.date);
+                            setViewMode('day');
+                          }}
+                          className={`${darkMode ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg p-2 min-h-24 cursor-pointer hover:ring-2 hover:ring-blue-300 transition ${
                             !day.isCurrentMonth ? 'opacity-40' : ''
                           } ${today ? 'ring-2 ring-blue-500' : ''}`}
                         >
