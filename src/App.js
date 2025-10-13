@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Calendar, Clock, TrendingUp, Settings, Plus, X, Edit2, Power, Trash2, MessageSquare, BarChart3, ChevronLeft, ChevronRight, LogOut, User } from 'lucide-react';
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDoc, collection, updateDoc } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
 
-// Configurazione Firebase - DA SOSTITUIRE CON LA TUA
+// Configurazione Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyCVBoIl4nVxPOi7qgq1d0wp_n5c4GqygxA",
   authDomain: "calendario-ai-d976e.firebaseapp.com",
@@ -14,8 +14,8 @@ const firebaseConfig = {
   appId: "1:233705052175:web:3adefa53a9c6c429b3ab7a"
 };
 
-// Inizializza Firebase
-const app = initializeApp(firebaseConfig);
+// FIX #1: Inizializza Firebase solo una volta
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 const auth = getAuth(app);
 const db = getFirestore(app);
 
@@ -72,12 +72,31 @@ const CalendarioAI = () => {
     return () => unsubscribe();
   }, []);
 
-  // Salva i dati dell'utente su Firebase quando cambiano
-  useEffect(() => {
-    if (user && habits.length > 0) {
-      saveUserData();
+  // FIX #2: Debounce auto-save con useCallback
+  const saveUserData = useCallback(async () => {
+    if (!user) return;
+    try {
+      await setDoc(doc(db, 'users', user.uid), {
+        habits,
+        events: events.filter(e => !e.fromHabit),
+        darkMode,
+        updatedAt: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Errore nel salvataggio dati:', error);
     }
-  }, [habits, events, user]);
+  }, [user, habits, events, darkMode]);
+
+  // FIX #3: Debounce per evitare troppe scritture
+  useEffect(() => {
+    if (user && habits.length >= 0) {
+      const timer = setTimeout(() => {
+        saveUserData();
+      }, 2000); // Salva dopo 2 secondi di inattività
+      
+      return () => clearTimeout(timer);
+    }
+  }, [habits, events, user, saveUserData]);
 
   const loadUserData = async (userId) => {
     try {
@@ -90,20 +109,6 @@ const CalendarioAI = () => {
       }
     } catch (error) {
       console.error('Errore nel caricamento dati:', error);
-    }
-  };
-
-  const saveUserData = async () => {
-    if (!user) return;
-    try {
-      await setDoc(doc(db, 'users', user.uid), {
-        habits,
-        events: events.filter(e => !e.fromHabit),
-        darkMode,
-        updatedAt: new Date().toISOString()
-      });
-    } catch (error) {
-      console.error('Errore nel salvataggio dati:', error);
     }
   };
 
@@ -195,7 +200,7 @@ const CalendarioAI = () => {
     return habit;
   };
 
-  const generateEventsFromHabit = (habit) => {
+  const generateEventsFromHabit = useCallback((habit) => {
     if (!habit.active || !habit.startDate || !habit.endDate) return [];
     
     const generatedEvents = [];
@@ -218,17 +223,20 @@ const CalendarioAI = () => {
     }
     
     return generatedEvents;
-  };
+  }, []);
 
+  // FIX #4: Usa callback form per evitare dipendenze circolari
   useEffect(() => {
-    const habitEvents = habits.flatMap(h => generateEventsFromHabit(h));
-    const manualEvents = events.filter(e => !e.fromHabit);
-    setEvents([...manualEvents, ...habitEvents]);
-  }, [habits]);
+    setEvents(prevEvents => {
+      const habitEvents = habits.flatMap(h => generateEventsFromHabit(h));
+      const manualEvents = prevEvents.filter(e => !e.fromHabit);
+      return [...manualEvents, ...habitEvents];
+    });
+  }, [habits, generateEventsFromHabit]);
 
   const addEvent = () => {
     if (newEvent.title && newEvent.date) {
-      setEvents([...events, { ...newEvent, id: Date.now(), fromHabit: false }]);
+      setEvents(prev => [...prev, { ...newEvent, id: Date.now(), fromHabit: false }]);
       setNewEvent({ title: '', date: '', time: '', category: 'personale', description: '' });
       setShowEventModal(false);
     }
@@ -237,18 +245,18 @@ const CalendarioAI = () => {
   const addHabit = () => {
     if (newHabit.trim()) {
       const parsedHabit = parseHabitInput(newHabit);
-      setHabits([...habits, parsedHabit]);
+      setHabits(prev => [...prev, parsedHabit]);
       setNewHabit('');
       setShowHabitModal(false);
     }
   };
 
   const toggleHabit = (id) => {
-    setHabits(habits.map(h => h.id === id ? { ...h, active: !h.active } : h));
+    setHabits(prev => prev.map(h => h.id === id ? { ...h, active: !h.active } : h));
   };
 
   const deleteHabit = (id) => {
-    setHabits(habits.filter(h => h.id !== id));
+    setHabits(prev => prev.filter(h => h.id !== id));
   };
 
   const processAICommand = (message) => {
@@ -285,7 +293,7 @@ const CalendarioAI = () => {
 
   const sendMessage = () => {
     if (chatInput.trim()) {
-      setChatMessages([...chatMessages, { role: 'user', content: chatInput }]);
+      setChatMessages(prev => [...prev, { role: 'user', content: chatInput }]);
       const response = processAICommand(chatInput);
       setTimeout(() => {
         setChatMessages(prev => [...prev, { role: 'assistant', content: response }]);
@@ -294,7 +302,8 @@ const CalendarioAI = () => {
     }
   };
 
-  const getMonthDays = () => {
+  // FIX #5: Ottimizza con useMemo
+  const monthDays = useMemo(() => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
     const firstDay = new Date(year, month, 1);
@@ -320,7 +329,7 @@ const CalendarioAI = () => {
     }
     
     return days;
-  };
+  }, [currentDate]);
 
   const getTodayDate = () => {
     const today = new Date();
@@ -331,7 +340,7 @@ const CalendarioAI = () => {
     return date.toISOString().split('T')[0] === getTodayDate();
   };
 
-  const getWeekDays = () => {
+  const weekDays = useMemo(() => {
     const start = new Date(currentDate);
     start.setDate(start.getDate() - start.getDay() + 1);
     return Array.from({ length: 7 }, (_, i) => {
@@ -339,7 +348,7 @@ const CalendarioAI = () => {
       day.setDate(start.getDate() + i);
       return day;
     });
-  };
+  }, [currentDate]);
 
   const navigateMonth = (direction) => {
     const newDate = new Date(currentDate);
@@ -359,17 +368,17 @@ const CalendarioAI = () => {
     setCurrentDate(newDate);
   };
 
-  const getEventsForDate = (date) => {
+  const getEventsForDate = useCallback((date) => {
     const dateStr = date.toISOString().split('T')[0];
     return events.filter(e => e.date === dateStr);
-  };
+  }, [events]);
 
-  const getTodayEvents = () => {
+  const getTodayEvents = useMemo(() => {
     const today = new Date().toISOString().split('T')[0];
     return events.filter(e => e.date === today);
-  };
+  }, [events]);
 
-  const getWeeklyStats = () => {
+  const getWeeklyStats = useMemo(() => {
     const categoryHours = {};
     events.forEach(e => {
       if (e.time && e.endTime) {
@@ -380,13 +389,12 @@ const CalendarioAI = () => {
       }
     });
     return categoryHours;
-  };
+  }, [events]);
 
   const bgClass = darkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900';
   const cardClass = darkMode ? 'bg-gray-800' : 'bg-white';
   const borderClass = darkMode ? 'border-gray-700' : 'border-gray-200';
 
-  // Schermata di caricamento
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -398,7 +406,6 @@ const CalendarioAI = () => {
     );
   }
 
-  // Schermata di login
   if (!user) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
@@ -571,7 +578,7 @@ const CalendarioAI = () => {
                   </div>
                   
                   <div className="grid grid-cols-7 gap-2">
-                    {getMonthDays().map((day, i) => {
+                    {monthDays.map((day, i) => {
                       const dayEvents = getEventsForDate(day.date);
                       const today = isToday(day.date);
                       
@@ -624,7 +631,7 @@ const CalendarioAI = () => {
                     </button>
                   </div>
                   <div className="grid grid-cols-7 gap-2">
-                    {getWeekDays().map((day, i) => {
+                    {weekDays.map((day, i) => {
                       const dayEvents = getEventsForDate(day);
                       const today = isToday(day);
                       
@@ -714,8 +721,8 @@ const CalendarioAI = () => {
               <div className={`${cardClass} rounded-xl p-4 border ${borderClass}`}>
                 <h3 className="font-semibold mb-3">Eventi di Oggi</h3>
                 <div className="space-y-2">
-                  {getTodayEvents().length > 0 ? (
-                    getTodayEvents().map(event => (
+                  {getTodayEvents.length > 0 ? (
+                    getTodayEvents.map(event => (
                       <div key={event.id} className={`p-3 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
@@ -867,7 +874,7 @@ const CalendarioAI = () => {
             <div className="space-y-4">
               <div className={`p-4 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
                 <h3 className="font-semibold mb-3">Ore per Categoria</h3>
-                {Object.entries(getWeeklyStats()).map(([cat, hours]) => (
+                {Object.entries(getWeeklyStats).map(([cat, hours]) => (
                   <div key={cat} className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: categories[cat] }} />
