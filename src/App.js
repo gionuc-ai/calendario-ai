@@ -27,6 +27,7 @@ const CalendarioAI = () => {
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authError, setAuthError] = useState('');
+  const [saving, setSaving] = useState(false);
   
   const [activeTab, setActiveTab] = useState('home');
   const [darkMode, setDarkMode] = useState(false);
@@ -74,9 +75,10 @@ const CalendarioAI = () => {
     return () => unsubscribe();
   }, []);
 
-  // Debounce auto-save
+  // Salva dati su Firebase con debounce
   const saveUserData = useCallback(async () => {
     if (!user) return;
+    setSaving(true);
     try {
       await setDoc(doc(db, 'users', user.uid), {
         habits,
@@ -86,6 +88,8 @@ const CalendarioAI = () => {
       });
     } catch (error) {
       console.error('Errore nel salvataggio dati:', error);
+    } finally {
+      setSaving(false);
     }
   }, [user, habits, events, darkMode]);
 
@@ -136,6 +140,8 @@ const CalendarioAI = () => {
         setAuthError('Utente non trovato');
       } else if (error.code === 'auth/wrong-password') {
         setAuthError('Password errata');
+      } else if (error.code === 'auth/invalid-email') {
+        setAuthError('Email non valida');
       } else {
         setAuthError('Errore durante l\'autenticazione');
       }
@@ -148,6 +154,7 @@ const CalendarioAI = () => {
     setEvents([]);
   };
 
+  // FUNZIONE PARSEHABITINPUT COMPLETAMENTE FIXATA
   const parseHabitInput = (input) => {
     const lowerInput = input.toLowerCase();
     const habit = {
@@ -163,41 +170,105 @@ const CalendarioAI = () => {
       category: 'personale'
     };
 
-    const titleMatch = input.match(/^([^d]+?)(?=dal|lunedì|martedì|mercoledì|giovedì|venerdì|sabato|domenica)/i);
-    if (titleMatch) habit.title = titleMatch[1].trim();
+    // Estrai il titolo (tutto prima di "dal" o "dalle" o giorni della settimana)
+    const titleMatch = input.match(/^([^d]+?)(?=\s+(?:dal|dalle|tutti|lunedì|martedì|mercoledì|giovedì|venerdì|sabato|domenica|lunedi|martedi|mercoledi|giovedi|venerdi))/i);
+    if (titleMatch) {
+      habit.title = titleMatch[1].trim();
+    } else {
+      // Se non trova pattern, prende tutto fino al primo "dalle"
+      const fallbackMatch = input.match(/^(.+?)(?=\s+dalle)/i);
+      habit.title = fallbackMatch ? fallbackMatch[1].trim() : input.split(' ')[0];
+    }
 
+    // Mappa dei giorni
     const dayMap = {
-      'lunedì': 1, 'martedì': 2, 'mercoledì': 3, 'giovedì': 4,
-      'venerdì': 5, 'sabato': 6, 'domenica': 0
+      'lunedì': 1, 'lunedi': 1,
+      'martedì': 2, 'martedi': 2,
+      'mercoledì': 3, 'mercoledi': 3,
+      'giovedì': 4, 'giovedi': 4,
+      'venerdì': 5, 'venerdi': 5,
+      'sabato': 6,
+      'domenica': 0
     };
 
-    if (lowerInput.includes('dal') && lowerInput.includes('al')) {
-      const daysMatch = lowerInput.match(/dal\s+(lunedì|martedì|mercoledì|giovedì|venerdì|sabato|domenica)\s+al\s+(lunedì|martedì|mercoledì|giovedì|venerdì|sabato|domenica)/);
+    // CASO 1: "tutti i giorni" o "ogni giorno"
+    if (lowerInput.includes('tutti i giorni') || lowerInput.includes('ogni giorno') || lowerInput.includes('tutti giorni')) {
+      habit.days = [0, 1, 2, 3, 4, 5, 6]; // Tutti i giorni della settimana
+    }
+    // CASO 2: "dal lunedì al venerdì" o "dal lunedi alla venerdi"
+    else if (lowerInput.match(/dal\s+(lunedì|lunedi|martedì|martedi|mercoledì|mercoledi|giovedì|giovedi|venerdì|venerdi|sabato|domenica)\s+al(la)?\s+(lunedì|lunedi|martedì|martedi|mercoledì|mercoledi|giovedì|giovedi|venerdì|venerdi|sabato|domenica)/)) {
+      const daysMatch = lowerInput.match(/dal\s+(lunedì|lunedi|martedì|martedi|mercoledì|mercoledi|giovedì|giovedi|venerdì|venerdi|sabato|domenica)\s+al(la)?\s+(lunedì|lunedi|martedì|martedi|mercoledì|mercoledi|giovedì|giovedi|venerdì|venerdi|sabato|domenica)/);
       if (daysMatch) {
         const startDay = dayMap[daysMatch[1]];
-        const endDay = dayMap[daysMatch[2]];
-        for (let d = startDay; d <= endDay; d++) {
-          habit.days.push(d);
+        const endDay = dayMap[daysMatch[3]];
+        
+        // Gestisci il caso in cui la settimana attraversa la domenica
+        if (startDay <= endDay) {
+          for (let d = startDay; d <= endDay; d++) {
+            habit.days.push(d);
+          }
+        } else {
+          // Esempio: dal sabato alla domenica
+          for (let d = startDay; d <= 6; d++) {
+            habit.days.push(d);
+          }
+          for (let d = 0; d <= endDay; d++) {
+            habit.days.push(d);
+          }
         }
       }
     }
+    // CASO 3: Giorni specifici elencati "lunedì, mercoledì, venerdì"
+    else {
+      Object.keys(dayMap).forEach(day => {
+        if (lowerInput.includes(day)) {
+          const dayNum = dayMap[day];
+          if (!habit.days.includes(dayNum)) {
+            habit.days.push(dayNum);
+          }
+        }
+      });
+    }
 
+    // Se non ha trovato giorni, metti tutti i giorni della settimana lavorativa
+    if (habit.days.length === 0) {
+      habit.days = [1, 2, 3, 4, 5]; // Lunedì-Venerdì di default
+    }
+
+    // Estrai orari - Pattern più flessibile
+    // Supporta: "dalle 9 alle 17", "dalle 9:00 alle 17:00", "dalle 09:00 alle 17:00"
     const timeMatch = input.match(/dalle?\s+(\d{1,2}):?(\d{2})?\s+alle?\s+(\d{1,2}):?(\d{2})?/i);
     if (timeMatch) {
       habit.startTime = `${timeMatch[1].padStart(2, '0')}:${timeMatch[2] || '00'}`;
       habit.endTime = `${timeMatch[3].padStart(2, '0')}:${timeMatch[4] || '00'}`;
     }
 
-    const dateMatch = input.match(/dal\s+(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\s+al\s+(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/);
+    // Estrai date - Supporta più formati
+    // "dal 20/03 al 20/04" o "dal 20/03/2024 al 20/04/2024" o "dal 1/3 al 30/6"
+    const dateMatch = input.match(/dal\s+(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?\s+al\s+(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?/);
     if (dateMatch) {
-      const year = new Date().getFullYear();
-      habit.startDate = `${year}-${dateMatch[2].padStart(2, '0')}-${dateMatch[1].padStart(2, '0')}`;
-      habit.endDate = `${year}-${dateMatch[5].padStart(2, '0')}-${dateMatch[4].padStart(2, '0')}`;
+      const currentYear = new Date().getFullYear();
+      const startYear = dateMatch[3] ? (dateMatch[3].length === 2 ? `20${dateMatch[3]}` : dateMatch[3]) : currentYear;
+      const endYear = dateMatch[6] ? (dateMatch[6].length === 2 ? `20${dateMatch[6]}` : dateMatch[6]) : currentYear;
+      
+      habit.startDate = `${startYear}-${dateMatch[2].padStart(2, '0')}-${dateMatch[1].padStart(2, '0')}`;
+      habit.endDate = `${endYear}-${dateMatch[5].padStart(2, '0')}-${dateMatch[4].padStart(2, '0')}`;
+    } else {
+      // Se non ci sono date, usa anno corrente (da oggi a fine anno)
+      const today = new Date();
+      const endOfYear = new Date(today.getFullYear(), 11, 31);
+      habit.startDate = today.toISOString().split('T')[0];
+      habit.endDate = endOfYear.toISOString().split('T')[0];
     }
 
-    if (lowerInput.includes('palestra') || lowerInput.includes('gym')) habit.category = 'sport';
-    if (lowerInput.includes('studio') || lowerInput.includes('lezione')) habit.category = 'studio';
-    if (lowerInput.includes('lavoro') || lowerInput.includes('ufficio')) habit.category = 'lavoro';
+    // Rileva categoria automaticamente
+    if (lowerInput.includes('palestra') || lowerInput.includes('gym') || lowerInput.includes('allenamento') || lowerInput.includes('sport')) {
+      habit.category = 'sport';
+    } else if (lowerInput.includes('studio') || lowerInput.includes('lezione') || lowerInput.includes('università') || lowerInput.includes('esame') || lowerInput.includes('corso')) {
+      habit.category = 'studio';
+    } else if (lowerInput.includes('lavoro') || lowerInput.includes('ufficio') || lowerInput.includes('meeting') || lowerInput.includes('riunione')) {
+      habit.category = 'lavoro';
+    }
 
     return habit;
   };
@@ -262,6 +333,27 @@ const CalendarioAI = () => {
   const addHabit = () => {
     if (newHabit.trim()) {
       const parsedHabit = parseHabitInput(newHabit);
+      
+      // Log per debug
+      console.log('📝 Abitudine parsata:', {
+        titolo: parsedHabit.title,
+        giorni: parsedHabit.days,
+        orari: `${parsedHabit.startTime} - ${parsedHabit.endTime}`,
+        date: `${parsedHabit.startDate} → ${parsedHabit.endDate}`,
+        categoria: parsedHabit.category
+      });
+      
+      // Verifica che ci siano almeno titolo e orari
+      if (!parsedHabit.title) {
+        alert('⚠️ Non ho capito il titolo. Prova: "Lavoro dalle 9 alle 17"');
+        return;
+      }
+      
+      if (!parsedHabit.startTime || !parsedHabit.endTime) {
+        alert('⚠️ Specifica gli orari. Es: "dalle 9:00 alle 17:00"');
+        return;
+      }
+      
       setHabits(prev => [...prev, parsedHabit]);
       setNewHabit('');
       setShowHabitModal(false);
@@ -590,6 +682,7 @@ const CalendarioAI = () => {
             <h1 className="text-2xl font-bold">Calendario AI</h1>
           </div>
           <div className="flex items-center gap-3">
+            {saving && <span className="text-xs text-gray-500">Salvataggio...</span>}
             <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
               <User className="w-4 h-4" />
               <span className="text-sm">{user.email}</span>
@@ -929,6 +1022,9 @@ const CalendarioAI = () => {
                         />
                       </div>
                       <p className="text-sm opacity-75">{habit.original}</p>
+                      <div className="text-xs opacity-60 mt-1">
+                        Giorni: {habit.days.map(d => ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'][d]).join(', ')}
+                      </div>
                     </div>
                     <div className="flex gap-2">
                       <button
@@ -969,7 +1065,7 @@ const CalendarioAI = () => {
                   className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
                   <div
-                    className={`max-w-[80%] p-3 rounded-lg ${
+                    className={`max-w-[80%] p-3 rounded-lg whitespace-pre-line ${
                       msg.role === 'user'
                         ? 'bg-blue-500 text-white'
                         : darkMode ? 'bg-gray-700' : 'bg-gray-100'
@@ -1009,15 +1105,19 @@ const CalendarioAI = () => {
             <div className="space-y-4">
               <div className={`p-4 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
                 <h3 className="font-semibold mb-3">Ore per Categoria</h3>
-                {Object.entries(getWeeklyStats).map(([cat, hours]) => (
-                  <div key={cat} className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: categories[cat] || '#8b5cf6' }} />
-                      <span className="capitalize">{cat}</span>
+                {Object.entries(getWeeklyStats).length > 0 ? (
+                  Object.entries(getWeeklyStats).map(([cat, hours]) => (
+                    <div key={cat} className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: categories[cat] || '#8b5cf6' }} />
+                        <span className="capitalize">{cat}</span>
+                      </div>
+                      <span className="font-semibold">{hours.toFixed(1)}h</span>
                     </div>
-                    <span className="font-semibold">{hours.toFixed(1)}h</span>
-                  </div>
-                ))}
+                  ))
+                ) : (
+                  <p className="text-sm opacity-60">Nessun dato disponibile</p>
+                )}
               </div>
 
               <div className={`p-4 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
@@ -1146,9 +1246,10 @@ const CalendarioAI = () => {
               <div className={`p-3 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-100'} text-sm`}>
                 <p className="mb-2 font-medium">Esempi di input:</p>
                 <ul className="space-y-1 opacity-75">
-                  <li>• "Palestra dal lunedì al giovedì dalle 18:30 alle 20:30 dal 20/03 al 20/04"</li>
-                  <li>• "Studio dal lunedì al venerdì dalle 9:00 alle 13:00 dal 01/01 al 30/06"</li>
-                  <li>• "Lavoro dal lunedì al venerdì dalle 14:00 alle 18:00 dal 15/01 al 31/12"</li>
+                  <li>• "lavoro dal lunedì al venerdì dalle 9:00 alle 17:00"</li>
+                  <li>• "studio tutti i giorni dalle 18:00 alle 20:00"</li>
+                  <li>• "palestra lunedì, mercoledì, venerdì dalle 19 alle 20:30"</li>
+                  <li>• "corso dal 15/01 al 30/06 dalle 14:00 alle 16:00"</li>
                 </ul>
               </div>
               
