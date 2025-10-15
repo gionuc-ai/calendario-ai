@@ -1332,48 +1332,4 @@ const CalendarioAI = () => {
   );
 };
 
-export default CalendarioAI;'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
-                  />
-                </div>
-                <div>
-                  <label className="text-sm opacity-75 mb-1 block">Fine</label>
-                  <input
-                    type="time"
-                    value={newEvent.endTime}
-                    onChange={(e) => setNewEvent({ ...newEvent, endTime: e.target.value })}
-                    className={`w-full px-4 py-2 rounded-lg border ${borderClass} ${darkMode ? 'bg-gray-700' : 'bg-white'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
-                  />
-                </div>
-              </div>
-              
-              <div>
-                <label className="text-sm opacity-75 mb-2 block">Categoria</label>
-                <select
-                  value={newEvent.category}
-                  onChange={(e) => {
-                    if (e.target.value === 'custom') {
-                      setCustomCategory('');
-                      setNewEvent({ ...newEvent, category: '' });
-                    } else {
-                      setNewEvent({ ...newEvent, category: e.target.value });
-                      setCustomCategory('');
-                    }
-                  }}
-                  className={`w-full px-4 py-2 rounded-lg border ${borderClass} ${darkMode ? 'bg-gray-700' : 'bg-white'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
-                >
-                  {Object.keys(categories).map(cat => (
-                    <option key={cat} value={cat}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</option>
-                  ))}
-                  <option value="custom">+ Categoria Personalizzata</option>
-                </select>
-                
-                {(newEvent.category === '' || newEvent.category === 'custom' || !categories[newEvent.category]) && (
-                  <input
-                    type="text"
-                    placeholder="Nome categoria personalizzata"
-                    value={customCategory || newEvent.category}
-                    onChange={(e) => {
-                      setCustomCategory(e.target.value);
-                      setNewEvent({ ...newEvent, category: e.target.value });
-                    }}
-                    className={`w-full px-4 py-2 rounded-lg border ${borderClass} ${darkMode ? 'bg-gray-700' : 'bg-white
+export default CalendarioAI;
