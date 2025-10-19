@@ -413,11 +413,14 @@ const CalendarioAI = () => {
 
   const analyzeCalendar = useCallback(() => {
     const today = new Date();
+    today.setHours(0, 0, 0, 0);
     const nextWeek = new Date(today);
     nextWeek.setDate(today.getDate() + 7);
     
     const weekEvents = events.filter(e => {
-      const eventDate = new Date(e.date);
+      const [year, month, day] = e.date.split('-').map(Number);
+      const eventDate = new Date(year, month - 1, day);
+      eventDate.setHours(0, 0, 0, 0);
       return eventDate >= today && eventDate <= nextWeek;
     });
 
@@ -425,7 +428,10 @@ const CalendarioAI = () => {
     for (let i = 0; i < 7; i++) {
       const day = new Date(today);
       day.setDate(today.getDate() + i);
-      const dateStr = day.toISOString().split('T')[0];
+      const year = day.getFullYear();
+      const month = String(day.getMonth() + 1).padStart(2, '0');
+      const dayNum = String(day.getDate()).padStart(2, '0');
+      const dateStr = `${year}-${month}-${dayNum}`;
       
       const dayEvents = weekEvents.filter(e => e.date === dateStr);
       const totalMinutes = dayEvents.reduce((acc, e) => {
@@ -449,7 +455,16 @@ const CalendarioAI = () => {
   }, [events]);
 
   const findFreeSlots = useCallback((date) => {
-    const dateStr = typeof date === 'string' ? date : date.toISOString().split('T')[0];
+    let dateStr;
+    if (typeof date === 'string') {
+      dateStr = date;
+    } else {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      dateStr = `${year}-${month}-${day}`;
+    }
+    
     const dayEvents = events
       .filter(e => e.date === dateStr && e.time && e.endTime)
       .sort((a, b) => a.time.localeCompare(b.time));
@@ -668,11 +683,17 @@ const CalendarioAI = () => {
 
   const getTodayDate = () => {
     const today = new Date();
-    return today.toISOString().split('T')[0];
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   };
 
   const isToday = (date) => {
-    const dateStr = date.toISOString().split('T')[0];
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
     return dateStr === getTodayDate();
   };
 
@@ -695,7 +716,10 @@ const CalendarioAI = () => {
   };
 
   const getEventsForDate = useCallback((date) => {
-    const dateStr = date.toISOString().split('T')[0];
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
     return events.filter(e => e.date === dateStr);
   }, [events]);
 
@@ -888,9 +912,12 @@ const CalendarioAI = () => {
                   </div>
                   <button
                     onClick={() => {
+                      const year = currentDate.getFullYear();
+                      const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+                      const day = String(currentDate.getDate()).padStart(2, '0');
                       setNewEvent({
                         title: '',
-                        date: currentDate.toISOString().split('T')[0],
+                        date: `${year}-${month}-${day}`,
                         time: '',
                         endTime: '',
                         category: 'personale',
@@ -1086,9 +1113,12 @@ const CalendarioAI = () => {
                             <p>Nessun evento per questo giorno</p>
                             <button
                               onClick={() => {
+                                const year = currentDate.getFullYear();
+                                const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+                                const day = String(currentDate.getDate()).padStart(2, '0');
                                 setNewEvent({
                                   ...newEvent,
-                                  date: currentDate.toISOString().split('T')[0]
+                                  date: `${year}-${month}-${day}`
                                 });
                                 setShowEventModal(true);
                               }}
