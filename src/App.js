@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Calendar, Clock, TrendingUp, Settings, Plus, X, Edit2, Power, Trash2, MessageSquare, BarChart3, ChevronLeft, ChevronRight, LogOut, User, Search, Zap, AlertCircle } from 'lucide-react';
+import { Calendar, Clock, TrendingUp, Settings, Plus, X, Edit2, Power, Trash2, MessageSquare, BarChart3, ChevronLeft, ChevronRight, LogOut, User, Zap, AlertCircle } from 'lucide-react';
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
 
-// Configurazione Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyCVBoIl4nVxPOi7qgq1d0wp_n5c4GqygxA",
   authDomain: "calendario-ai-d976e.firebaseapp.com",
@@ -68,7 +67,6 @@ const CalendarioAI = () => {
     personale: '#8b5cf6'
   };
 
-  // Auth e caricamento dati
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
@@ -156,7 +154,6 @@ const CalendarioAI = () => {
     setEvents([]);
   };
 
-  // Funzioni per le abitudini
   const parseHabitInput = (input) => {
     const lowerInput = input.toLowerCase();
     const habit = {
@@ -337,9 +334,7 @@ const CalendarioAI = () => {
     setShowConfirmDialog(true);
   };
 
-  // Funzioni per gli eventi - FIX COMPLETO
   const addEvent = () => {
-    // Validazione completa
     if (!newEvent.title.trim()) {
       alert('⚠️ Inserisci un titolo per l\'evento');
       return;
@@ -350,7 +345,6 @@ const CalendarioAI = () => {
       return;
     }
 
-    // Validazione orari
     if (newEvent.time && newEvent.endTime) {
       const [startH, startM] = newEvent.time.split(':').map(Number);
       const [endH, endM] = newEvent.endTime.split(':').map(Number);
@@ -417,7 +411,6 @@ const CalendarioAI = () => {
     setShowConfirmDialog(true);
   };
 
-  // ASSISTENTE AI INTELLIGENTE - FUNZIONI DI ANALISI
   const analyzeCalendar = useCallback(() => {
     const today = new Date();
     const nextWeek = new Date(today);
@@ -428,7 +421,6 @@ const CalendarioAI = () => {
       return eventDate >= today && eventDate <= nextWeek;
     });
 
-    // Analizza ogni giorno
     const dayAnalysis = {};
     for (let i = 0; i < 7; i++) {
       const day = new Date(today);
@@ -463,15 +455,14 @@ const CalendarioAI = () => {
       .sort((a, b) => a.time.localeCompare(b.time));
 
     const slots = [];
-    const workStart = 9 * 60; // 9:00
-    const workEnd = 19 * 60; // 19:00
+    const workStart = 9 * 60;
+    const workEnd = 19 * 60;
 
     if (dayEvents.length === 0) {
       slots.push({ start: '09:00', end: '19:00', duration: 600 });
       return slots;
     }
 
-    // Slot prima del primo evento
     const [fh, fm] = dayEvents[0].time.split(':').map(Number);
     const firstEventStart = fh * 60 + fm;
     if (firstEventStart > workStart) {
@@ -485,7 +476,6 @@ const CalendarioAI = () => {
       }
     }
 
-    // Slot tra eventi
     for (let i = 0; i < dayEvents.length - 1; i++) {
       const [eh, em] = dayEvents[i].endTime.split(':').map(Number);
       const [nh, nm] = dayEvents[i + 1].time.split(':').map(Number);
@@ -500,7 +490,6 @@ const CalendarioAI = () => {
       }
     }
 
-    // Slot dopo l'ultimo evento
     const [lh, lm] = dayEvents[dayEvents.length - 1].endTime.split(':').map(Number);
     const lastEventEnd = lh * 60 + lm;
     if (lastEventEnd < workEnd) {
@@ -521,7 +510,6 @@ const CalendarioAI = () => {
     const lower = message.toLowerCase();
     const { weekEvents, dayAnalysis } = analyzeCalendar();
 
-    // Trova giorni più liberi
     if (lower.includes('giorni') && (lower.includes('liberi') || lower.includes('libero') || lower.includes('disponibil'))) {
       const sortedDays = Object.entries(dayAnalysis)
         .sort((a, b) => a[1].totalMinutes - b[1].totalMinutes)
@@ -537,7 +525,6 @@ const CalendarioAI = () => {
       return response;
     }
 
-    // Trova giorni più occupati
     if (lower.includes('giorni') && (lower.includes('occupat') || lower.includes('pieno') || lower.includes('pien'))) {
       const sortedDays = Object.entries(dayAnalysis)
         .sort((a, b) => b[1].totalMinutes - a[1].totalMinutes)
@@ -553,9 +540,7 @@ const CalendarioAI = () => {
       return response;
     }
 
-    // Suggerisci slot per nuovo impegno
     if (lower.includes('quando') && (lower.includes('inserire') || lower.includes('programmare') || lower.includes('mettere'))) {
-      // Estrai durata se specificata
       const durationMatch = message.match(/(\d+)\s*(ora|ore|minuti|h|min)/i);
       const requestedMinutes = durationMatch ? 
         (durationMatch[2].includes('ora') || durationMatch[2].includes('h') ? 
@@ -590,7 +575,6 @@ const CalendarioAI = () => {
       return response;
     }
 
-    // Analisi generale settimana
     if (lower.includes('analisi') || lower.includes('come va') || lower.includes('settimana') || lower.includes('riepilogo')) {
       const totalEvents = weekEvents.length;
       const totalHours = Object.values(dayAnalysis).reduce((acc, day) => acc + day.totalMinutes, 0) / 60;
@@ -613,7 +597,6 @@ const CalendarioAI = () => {
       return response;
     }
 
-    // Cerca evento specifico
     if (lower.includes('cerca') || lower.includes('trova')) {
       const searchTerm = message.replace(/cerca|trova|evento/gi, '').trim();
       const found = events.filter(e => 
@@ -631,7 +614,6 @@ const CalendarioAI = () => {
       return 'Non ho trovato eventi corrispondenti alla tua ricerca.';
     }
 
-    // Messaggio di aiuto
     return `🤖 **Come posso aiutarti?**\n\nProva a chiedermi:\n\n📅 "Quali sono i miei giorni più liberi?"\n📊 "Quali giorni sono più occupati?"\n🎯 "Quando posso inserire una riunione di 2 ore?"\n📈 "Fammi un'analisi della settimana"\n🔍 "Cerca evento [nome]"\n\nSono qui per ottimizzare il tuo tempo!`;
   }, [analyzeCalendar, findFreeSlots, events]);
 
@@ -646,7 +628,6 @@ const CalendarioAI = () => {
     }
   };
 
-  // Calcoli calendario
   const monthDays = useMemo(() => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
@@ -827,7 +808,6 @@ const CalendarioAI = () => {
           <div className="flex items-center gap-3">
             {saving && <span className="text-xs text-gray-500">Salvataggio...</span>}
             
-            {/* Pulsante Assistente AI - Sempre visibile */}
             <button
               onClick={() => setShowAIPanel(!showAIPanel)}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
@@ -887,7 +867,6 @@ const CalendarioAI = () => {
 
       <main className="max-w-7xl mx-auto px-6 py-6">
         <div className="flex gap-6">
-          {/* Contenuto principale */}
           <div className={`flex-1 transition-all duration-300 ${showAIPanel ? 'mr-0' : ''}`}>
             {activeTab === 'home' && (
               <div className={`${cardClass} rounded-xl p-6 border ${borderClass}`}>
@@ -927,7 +906,6 @@ const CalendarioAI = () => {
                   </button>
                 </div>
 
-                {/* Vista Mese */}
                 {viewMode === 'month' && (
                   <div>
                     <div className="flex items-center justify-between mb-4">
@@ -990,7 +968,6 @@ const CalendarioAI = () => {
                   </div>
                 )}
 
-                {/* Vista Settimana */}
                 {viewMode === 'week' && (
                   <div>
                     <div className="flex items-center justify-between mb-4">
@@ -1043,7 +1020,6 @@ const CalendarioAI = () => {
                   </div>
                 )}
 
-                {/* Vista Giorno */}
                 {viewMode === 'day' && (
                   <div>
                     <div className="flex items-center justify-between mb-4">
@@ -1246,15 +1222,19 @@ const CalendarioAI = () => {
                       Panoramica
                     </h3>
                     <div className="grid grid-cols-2 gap-4">
-                      <div className="text-center p-3 rounded-lg" style={{ backgroundColor: darkMode ? '#374151' : '#f3f4f6' }}>
+                      <div className="text-center p-3 rounded-lg bg-gray-600 bg-opacity-20">
+                        <div className="text-2xl font-bold text-blue-500">{events.filter(e => !e.fromHabit).length}</div>
+                        <div className="text-sm opacity-60">Eventi Manuali</div>
+                      </div>
+                      <div className="text-center p-3 rounded-lg bg-gray-600 bg-opacity-20">
                         <div className="text-2xl font-bold text-green-500">{habits.filter(h => h.active).length}</div>
                         <div className="text-sm opacity-60">Abitudini Attive</div>
                       </div>
-                      <div className="text-center p-3 rounded-lg" style={{ backgroundColor: darkMode ? '#374151' : '#f3f4f6' }}>
+                      <div className="text-center p-3 rounded-lg bg-gray-600 bg-opacity-20">
                         <div className="text-2xl font-bold text-purple-500">{events.length}</div>
                         <div className="text-sm opacity-60">Eventi Totali</div>
                       </div>
-                      <div className="text-center p-3 rounded-lg" style={{ backgroundColor: darkMode ? '#374151' : '#f3f4f6' }}>
+                      <div className="text-center p-3 rounded-lg bg-gray-600 bg-opacity-20">
                         <div className="text-2xl font-bold text-orange-500">{getTodayEvents.length}</div>
                         <div className="text-sm opacity-60">Eventi Oggi</div>
                       </div>
@@ -1286,7 +1266,6 @@ const CalendarioAI = () => {
             )}
           </div>
 
-          {/* Pannello Assistente AI - Sidebar */}
           {showAIPanel && (
             <div className={`w-96 ${cardClass} rounded-xl border ${borderClass} flex flex-col sticky top-[145px] h-[calc(100vh-180px)]`}>
               <div className={`p-4 border-b ${borderClass} flex items-center justify-between`}>
@@ -1359,7 +1338,6 @@ const CalendarioAI = () => {
         </div>
       </main>
 
-      {/* Modal Nuovo/Modifica Evento */}
       {showEventModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className={`${cardClass} rounded-xl p-6 max-w-md w-full`}>
@@ -1453,7 +1431,6 @@ const CalendarioAI = () => {
         </div>
       )}
 
-      {/* Modal Nuova Abitudine */}
       {showHabitModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className={`${cardClass} rounded-xl p-6 max-w-md w-full`}>
@@ -1503,7 +1480,6 @@ const CalendarioAI = () => {
         </div>
       )}
 
-      {/* Modal Impostazioni */}
       {showSettings && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className={`${cardClass} rounded-xl p-6 max-w-md w-full`}>
@@ -1543,7 +1519,6 @@ const CalendarioAI = () => {
         </div>
       )}
 
-      {/* Dialog Conferma */}
       {showConfirmDialog && confirmAction && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className={`${cardClass} rounded-xl p-6 max-w-md w-full`}>
@@ -1573,8 +1548,4 @@ const CalendarioAI = () => {
   );
 };
 
-export default CalendarioAI; style={{ backgroundColor: darkMode ? '#374151' : '#f3f4f6' }}>
-                        <div className="text-2xl font-bold text-blue-500">{events.filter(e => !e.fromHabit).length}</div>
-                        <div className="text-sm opacity-60">Eventi Manuali</div>
-                      </div>
-                      <div className="text-center p-3 rounded-lg"
+export default CalendarioAI;
