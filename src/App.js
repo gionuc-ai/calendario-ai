@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Calendar, Clock, TrendingUp, Settings, Plus, X, Edit2, Power, Trash2, MessageSquare, BarChart3, ChevronLeft, ChevronRight, LogOut, User } from 'lucide-react';
+import { Calendar, Clock, TrendingUp, Settings, Plus, X, Edit2, Power, Trash2, MessageSquare, BarChart3, ChevronLeft, ChevronRight, LogOut, User, Search, Zap, AlertCircle } from 'lucide-react';
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
@@ -14,7 +14,6 @@ const firebaseConfig = {
   appId: "1:233705052175:web:3adefa53a9c6c429b3ab7a"
 };
 
-// Inizializza Firebase solo una volta
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -40,12 +39,14 @@ const CalendarioAI = () => {
   const [showHabitModal, setShowHabitModal] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null);
-  const [duplicatingEvent, setDuplicatingEvent] = useState(null);
-  const [editingHabit, setEditingHabit] = useState(null);
   const [editingEvent, setEditingEvent] = useState(null);
-  const [customCategory, setCustomCategory] = useState('');
+  const [showAIPanel, setShowAIPanel] = useState(false);
+  
   const [chatMessages, setChatMessages] = useState([
-    { role: 'assistant', content: 'Benvenuto in Calendario AI; io sono il tuo personale assistente e ti aiuterò ad organizzare le tue settimane nel modo più efficiente possibile. Per prima cosa se non l\'hai ancora fatto inserisci le tue abitudini nella sezione apposita.' }
+    { 
+      role: 'assistant', 
+      content: '👋 Ciao! Sono il tuo assistente calendario intelligente.\n\nPosso aiutarti a:\n• Trovare il momento migliore per un nuovo impegno\n• Analizzare i tuoi giorni più liberi o occupati\n• Suggerirti quando programmare attività\n• Gestire il tuo tempo in modo ottimale\n\nProva a chiedermi: "Quando posso inserire una riunione questa settimana?" oppure "Quali sono i miei giorni più liberi?"' 
+    }
   ]);
   const [chatInput, setChatInput] = useState('');
   
@@ -53,6 +54,7 @@ const CalendarioAI = () => {
     title: '',
     date: '',
     time: '',
+    endTime: '',
     category: 'personale',
     description: ''
   });
@@ -66,7 +68,7 @@ const CalendarioAI = () => {
     personale: '#8b5cf6'
   };
 
-  // Controlla lo stato di autenticazione
+  // Auth e caricamento dati
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
@@ -78,7 +80,6 @@ const CalendarioAI = () => {
     return () => unsubscribe();
   }, []);
 
-  // Salva dati su Firebase con debounce
   const saveUserData = useCallback(async () => {
     if (!user) return;
     setSaving(true);
@@ -96,13 +97,11 @@ const CalendarioAI = () => {
     }
   }, [user, habits, events, darkMode]);
 
-  // Debounce per evitare troppe scritture
   useEffect(() => {
     if (user && habits.length >= 0) {
       const timer = setTimeout(() => {
         saveUserData();
       }, 2000);
-      
       return () => clearTimeout(timer);
     }
   }, [habits, events, user, saveUserData]);
@@ -157,20 +156,7 @@ const CalendarioAI = () => {
     setEvents([]);
   };
 
-  // Funzione di validazione date
-  const isValidDate = (day, month, year) => {
-    const d = parseInt(day);
-    const m = parseInt(month);
-    const y = parseInt(year);
-    
-    if (m < 1 || m > 12) return false;
-    if (d < 1) return false;
-    
-    const daysInMonth = new Date(y, m, 0).getDate();
-    return d <= daysInMonth;
-  };
-
-  // FUNZIONE PARSEHABITINPUT COMPLETAMENTE FIXATA CON VALIDAZIONE
+  // Funzioni per le abitudini
   const parseHabitInput = (input) => {
     const lowerInput = input.toLowerCase();
     const habit = {
@@ -186,17 +172,14 @@ const CalendarioAI = () => {
       category: 'personale'
     };
 
-    // Estrai il titolo (tutto prima di "dal" o "dalle" o giorni della settimana)
     const titleMatch = input.match(/^([^d]+?)(?=\s+(?:dal|dalle|tutti|lunedì|martedì|mercoledì|giovedì|venerdì|sabato|domenica|lunedi|martedi|mercoledi|giovedi|venerdi))/i);
     if (titleMatch) {
       habit.title = titleMatch[1].trim();
     } else {
-      // Se non trova pattern, prende tutto fino al primo "dalle"
       const fallbackMatch = input.match(/^(.+?)(?=\s+dalle)/i);
       habit.title = fallbackMatch ? fallbackMatch[1].trim() : input.split(' ')[0];
     }
 
-    // Mappa dei giorni
     const dayMap = {
       'lunedì': 1, 'lunedi': 1,
       'martedì': 2, 'martedi': 2,
@@ -207,24 +190,19 @@ const CalendarioAI = () => {
       'domenica': 0
     };
 
-    // CASO 1: "tutti i giorni" o "ogni giorno"
-    if (lowerInput.includes('tutti i giorni') || lowerInput.includes('ogni giorno') || lowerInput.includes('tutti giorni')) {
-      habit.days = [0, 1, 2, 3, 4, 5, 6]; // Tutti i giorni della settimana
-    }
-    // CASO 2: "dal lunedì al venerdì" o "dal lunedi alla venerdi"
-    else if (lowerInput.match(/dal\s+(lunedì|lunedi|martedì|martedi|mercoledì|mercoledi|giovedì|giovedi|venerdì|venerdi|sabato|domenica)\s+al(la)?\s+(lunedì|lunedi|martedì|martedi|mercoledì|mercoledi|giovedì|giovedi|venerdì|venerdi|sabato|domenica)/)) {
+    if (lowerInput.includes('tutti i giorni') || lowerInput.includes('ogni giorno')) {
+      habit.days = [0, 1, 2, 3, 4, 5, 6];
+    } else if (lowerInput.match(/dal\s+(lunedì|lunedi|martedì|martedi|mercoledì|mercoledi|giovedì|giovedi|venerdì|venerdi|sabato|domenica)\s+al(la)?\s+(lunedì|lunedi|martedì|martedi|mercoledì|mercoledi|giovedì|giovedi|venerdì|venerdi|sabato|domenica)/)) {
       const daysMatch = lowerInput.match(/dal\s+(lunedì|lunedi|martedì|martedi|mercoledì|mercoledi|giovedì|giovedi|venerdì|venerdi|sabato|domenica)\s+al(la)?\s+(lunedì|lunedi|martedì|martedi|mercoledì|mercoledi|giovedì|giovedi|venerdì|venerdi|sabato|domenica)/);
       if (daysMatch) {
         const startDay = dayMap[daysMatch[1]];
         const endDay = dayMap[daysMatch[3]];
         
-        // Gestisci il caso in cui la settimana attraversa la domenica
         if (startDay <= endDay) {
           for (let d = startDay; d <= endDay; d++) {
             habit.days.push(d);
           }
         } else {
-          // Esempio: dal sabato alla domenica
           for (let d = startDay; d <= 6; d++) {
             habit.days.push(d);
           }
@@ -233,9 +211,7 @@ const CalendarioAI = () => {
           }
         }
       }
-    }
-    // CASO 3: Giorni specifici elencati "lunedì, mercoledì, venerdì"
-    else {
+    } else {
       Object.keys(dayMap).forEach(day => {
         if (lowerInput.includes(day)) {
           const dayNum = dayMap[day];
@@ -246,56 +222,40 @@ const CalendarioAI = () => {
       });
     }
 
-    // Se non ha trovato giorni, metti tutti i giorni della settimana lavorativa
     if (habit.days.length === 0) {
-      habit.days = [1, 2, 3, 4, 5]; // Lunedì-Venerdì di default
+      habit.days = [1, 2, 3, 4, 5];
     }
 
-    // Estrai orari - Pattern più flessibile
-    // Supporta: "dalle 9 alle 17", "dalle 9:00 alle 17:00", "dalle 09:00 alle 17:00"
     const timeMatch = input.match(/dalle?\s+(\d{1,2}):?(\d{2})?\s+alle?\s+(\d{1,2}):?(\d{2})?/i);
     if (timeMatch) {
       habit.startTime = `${timeMatch[1].padStart(2, '0')}:${timeMatch[2] || '00'}`;
       habit.endTime = `${timeMatch[3].padStart(2, '0')}:${timeMatch[4] || '00'}`;
     }
 
-    // Estrai date - Supporta più formati
-    // "dal 20/03 al 20/04" o "dal 20/03/2024 al 20/04/2024" o "dal 1/3 al 30/6"
     const dateMatch = input.match(/dal\s+(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?\s+al\s+(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?/);
     if (dateMatch) {
       const currentYear = new Date().getFullYear();
       const startYear = dateMatch[3] ? (dateMatch[3].length === 2 ? `20${dateMatch[3]}` : dateMatch[3]) : currentYear;
       const endYear = dateMatch[6] ? (dateMatch[6].length === 2 ? `20${dateMatch[6]}` : dateMatch[6]) : currentYear;
       
-      // VALIDAZIONE DATE
-      if (!isValidDate(dateMatch[1], dateMatch[2], startYear)) {
-        throw new Error(`Data di inizio non valida: ${dateMatch[1]}/${dateMatch[2]}/${startYear}`);
-      }
-      if (!isValidDate(dateMatch[4], dateMatch[5], endYear)) {
-        throw new Error(`Data di fine non valida: ${dateMatch[4]}/${dateMatch[5]}/${endYear}`);
-      }
-      
       habit.startDate = `${startYear}-${dateMatch[2].padStart(2, '0')}-${dateMatch[1].padStart(2, '0')}`;
       habit.endDate = `${endYear}-${dateMatch[5].padStart(2, '0')}-${dateMatch[4].padStart(2, '0')}`;
       
-      // Verifica che la data di inizio sia prima della data di fine
       if (new Date(habit.startDate) > new Date(habit.endDate)) {
         throw new Error('La data di inizio deve essere precedente alla data di fine');
       }
     } else {
-      // Se non ci sono date, usa anno corrente (da oggi a fine anno)
       const today = new Date();
       const endOfYear = new Date(today.getFullYear(), 11, 31);
       habit.startDate = today.toISOString().split('T')[0];
       habit.endDate = endOfYear.toISOString().split('T')[0];
     }
 
-    // Rileva categoria automaticamente
     if (lowerInput.includes('palestra') || lowerInput.includes('gym') || lowerInput.includes('allenamento') || lowerInput.includes('sport')) {
       habit.category = 'sport';
-    } else if (lowerInput.includes('studio') || lowerInput.includes('lezione') || lowerInput.includes('università') || lowerInput.includes('esame') || lowerInput.includes('corso')) {
+    } else if (lowerInput.includes('studio') || lowerInput.includes('lezione') || lowerInput.includes('università')) {
       habit.category = 'studio';
-    } else if (lowerInput.includes('lavoro') || lowerInput.includes('ufficio') || lowerInput.includes('meeting') || lowerInput.includes('riunione')) {
+    } else if (lowerInput.includes('lavoro') || lowerInput.includes('ufficio') || lowerInput.includes('meeting')) {
       habit.category = 'lavoro';
     }
 
@@ -335,69 +295,11 @@ const CalendarioAI = () => {
     });
   }, [habits, generateEventsFromHabit]);
 
-  const addEvent = () => {
-    if (newEvent.title && newEvent.date) {
-      if (editingEvent) {
-        setEvents(prev => prev.map(e => e.id === editingEvent.id ? { ...newEvent, id: editingEvent.id, fromHabit: false } : e));
-        setEditingEvent(null);
-      } else {
-        setEvents(prev => [...prev, { ...newEvent, id: Date.now(), fromHabit: false }]);
-      }
-      setNewEvent({ title: '', date: '', time: '', category: 'personale', description: '' });
-      setShowEventModal(false);
-      setDuplicatingEvent(null);
-      setCustomCategory('');
-    }
-  };
-
-  const editEvent = (event) => {
-    setNewEvent(event);
-    setEditingEvent(event);
-    setDuplicatingEvent(null);
-    setShowEventModal(true);
-  };
-
-  const deleteEvent = (id) => {
-    setConfirmAction({
-      title: 'Elimina Evento',
-      message: 'Sei sicuro di voler eliminare questo evento?',
-      onConfirm: () => {
-        setEvents(prev => prev.filter(e => e.id !== id));
-        setShowConfirmDialog(false);
-        setConfirmAction(null);
-      }
-    });
-    setShowConfirmDialog(true);
-  };
-
-  const duplicateEvent = (event) => {
-    setDuplicatingEvent(event);
-    setEditingEvent(null);
-    setNewEvent({
-      title: event.title + ' (copia)',
-      date: event.date,
-      time: event.time,
-      category: event.category,
-      description: event.description || ''
-    });
-    setShowEventModal(true);
-  };
-
   const addHabit = () => {
     if (newHabit.trim()) {
       try {
         const parsedHabit = parseHabitInput(newHabit);
         
-        // Log per debug
-        console.log('📝 Abitudine parsata:', {
-          titolo: parsedHabit.title,
-          giorni: parsedHabit.days,
-          orari: `${parsedHabit.startTime} - ${parsedHabit.endTime}`,
-          date: `${parsedHabit.startDate} → ${parsedHabit.endDate}`,
-          categoria: parsedHabit.category
-        });
-        
-        // Verifica che ci siano almeno titolo e orari
         if (!parsedHabit.title) {
           alert('⚠️ Non ho capito il titolo. Prova: "Lavoro dalle 9 alle 17"');
           return;
@@ -425,7 +327,7 @@ const CalendarioAI = () => {
     const habitToDelete = habits.find(h => h.id === id);
     setConfirmAction({
       title: 'Elimina Abitudine',
-      message: `Sei sicuro di voler eliminare l'abitudine "${habitToDelete?.title}"? Tutti gli eventi associati verranno rimossi.`,
+      message: `Sei sicuro di voler eliminare l'abitudine "${habitToDelete?.title}"?`,
       onConfirm: () => {
         setHabits(prev => prev.filter(h => h.id !== id));
         setShowConfirmDialog(false);
@@ -435,124 +337,303 @@ const CalendarioAI = () => {
     setShowConfirmDialog(true);
   };
 
-  const formatDateFromAI = (dateStr) => {
-    const parts = dateStr.split(/[\/\-]/);
-    const year = new Date().getFullYear();
-    return `${year}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+  // Funzioni per gli eventi - FIX COMPLETO
+  const addEvent = () => {
+    // Validazione completa
+    if (!newEvent.title.trim()) {
+      alert('⚠️ Inserisci un titolo per l\'evento');
+      return;
+    }
+    
+    if (!newEvent.date) {
+      alert('⚠️ Seleziona una data per l\'evento');
+      return;
+    }
+
+    // Validazione orari
+    if (newEvent.time && newEvent.endTime) {
+      const [startH, startM] = newEvent.time.split(':').map(Number);
+      const [endH, endM] = newEvent.endTime.split(':').map(Number);
+      const startMinutes = startH * 60 + startM;
+      const endMinutes = endH * 60 + endM;
+      
+      if (endMinutes <= startMinutes) {
+        alert('⚠️ L\'orario di fine deve essere successivo all\'orario di inizio');
+        return;
+      }
+    }
+
+    if (editingEvent) {
+      setEvents(prev => prev.map(e => 
+        e.id === editingEvent.id 
+          ? { ...newEvent, id: editingEvent.id, fromHabit: false } 
+          : e
+      ));
+      setEditingEvent(null);
+    } else {
+      setEvents(prev => [...prev, { 
+        ...newEvent, 
+        id: Date.now(), 
+        fromHabit: false,
+        title: newEvent.title.trim()
+      }]);
+    }
+    
+    setNewEvent({ 
+      title: '', 
+      date: '', 
+      time: '', 
+      endTime: '', 
+      category: 'personale', 
+      description: '' 
+    });
+    setShowEventModal(false);
   };
 
-  const processAICommand = (message) => {
-    const lower = message.toLowerCase();
+  const editEvent = (event) => {
+    setNewEvent({
+      title: event.title,
+      date: event.date,
+      time: event.time || '',
+      endTime: event.endTime || '',
+      category: event.category,
+      description: event.description || ''
+    });
+    setEditingEvent(event);
+    setShowEventModal(true);
+  };
+
+  const deleteEvent = (id) => {
+    const eventToDelete = events.find(e => e.id === id);
+    setConfirmAction({
+      title: 'Elimina Evento',
+      message: `Sei sicuro di voler eliminare "${eventToDelete?.title}"?`,
+      onConfirm: () => {
+        setEvents(prev => prev.filter(e => e.id !== id));
+        setShowConfirmDialog(false);
+        setConfirmAction(null);
+      }
+    });
+    setShowConfirmDialog(true);
+  };
+
+  // ASSISTENTE AI INTELLIGENTE - FUNZIONI DI ANALISI
+  const analyzeCalendar = useCallback(() => {
+    const today = new Date();
+    const nextWeek = new Date(today);
+    nextWeek.setDate(today.getDate() + 7);
     
-    // Crea evento
-    if (lower.includes('crea evento') || lower.includes('aggiungi evento') || lower.includes('nuovo evento')) {
-      const titleMatch = message.match(/(?:evento|chiamato|titolo)[:\s]+"([^"]+)"/i) || 
-                        message.match(/(?:evento|chiamato|titolo)[:\s]+([^\s,]+(?:\s+[^\s,]+)*?)(?=\s+(?:il|per|alle|categoria)|$)/i);
-      const dateMatch = message.match(/(?:il|per)\s+(\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?)/i);
-      const timeMatch = message.match(/alle?\s+(\d{1,2}):?(\d{2})?/i);
-      const categoryMatch = message.match(/categoria[:\s]+(lavoro|sport|studio|personale|[^\s,]+)/i);
+    const weekEvents = events.filter(e => {
+      const eventDate = new Date(e.date);
+      return eventDate >= today && eventDate <= nextWeek;
+    });
+
+    // Analizza ogni giorno
+    const dayAnalysis = {};
+    for (let i = 0; i < 7; i++) {
+      const day = new Date(today);
+      day.setDate(today.getDate() + i);
+      const dateStr = day.toISOString().split('T')[0];
       
-      if (titleMatch) {
-        const newEventData = {
-          title: titleMatch[1],
-          date: dateMatch ? formatDateFromAI(dateMatch[1]) : new Date().toISOString().split('T')[0],
-          time: timeMatch ? `${timeMatch[1].padStart(2, '0')}:${timeMatch[2] || '00'}` : '',
-          category: categoryMatch ? categoryMatch[1].toLowerCase() : 'personale',
-          description: '',
-          id: Date.now(),
-          fromHabit: false
-        };
-        setEvents(prev => [...prev, newEventData]);
-        return `Ho creato l'evento "${newEventData.title}" per il ${newEventData.date}${newEventData.time ? ` alle ${newEventData.time}` : ''}.`;
-      }
-      return 'Per creare un evento, specifica almeno il titolo. Es: "Crea evento: Riunione il 15/03 alle 10:00 categoria lavoro"';
-    }
-    
-    // Modifica evento
-    if (lower.includes('modifica evento') || lower.includes('cambia evento')) {
-      const numMatch = message.match(/evento\s+(\d+)/i);
-      if (numMatch) {
-        const eventIndex = parseInt(numMatch[1]) - 1;
-        const manualEvents = events.filter(e => !e.fromHabit);
-        if (manualEvents[eventIndex]) {
-          const titleMatch = message.match(/titolo[:\s]+"([^"]+)"/i);
-          const dateMatch = message.match(/data[:\s]+(\d{1,2}[\/\-]\d{1,2})/i);
-          const timeMatch = message.match(/ora[:\s]+(\d{1,2}):?(\d{2})?/i);
-          
-          const updatedEvent = { ...manualEvents[eventIndex] };
-          if (titleMatch) updatedEvent.title = titleMatch[1];
-          if (dateMatch) updatedEvent.date = formatDateFromAI(dateMatch[1]);
-          if (timeMatch) updatedEvent.time = `${timeMatch[1].padStart(2, '0')}:${timeMatch[2] || '00'}`;
-          
-          setEvents(prev => prev.map(e => e.id === updatedEvent.id ? updatedEvent : e));
-          return `Ho modificato l'evento "${updatedEvent.title}".`;
+      const dayEvents = weekEvents.filter(e => e.date === dateStr);
+      const totalMinutes = dayEvents.reduce((acc, e) => {
+        if (e.time && e.endTime) {
+          const [sh, sm] = e.time.split(':').map(Number);
+          const [eh, em] = e.endTime.split(':').map(Number);
+          return acc + ((eh * 60 + em) - (sh * 60 + sm));
         }
-      }
-      return 'Specifica quale evento modificare. Es: "Modifica evento 1 titolo: Nuovo titolo"';
+        return acc;
+      }, 0);
+      
+      dayAnalysis[dateStr] = {
+        date: day,
+        events: dayEvents,
+        totalMinutes,
+        isFree: dayEvents.length === 0
+      };
     }
-    
-    // Elimina evento
-    if (lower.includes('elimina evento') || lower.includes('cancella evento')) {
-      const numMatch = message.match(/evento\s+(\d+)/i);
-      if (numMatch) {
-        const eventIndex = parseInt(numMatch[1]) - 1;
-        const manualEvents = events.filter(e => !e.fromHabit);
-        if (manualEvents[eventIndex]) {
-          setEvents(prev => prev.filter(e => e.id !== manualEvents[eventIndex].id));
-          return `Ho eliminato l'evento "${manualEvents[eventIndex].title}".`;
-        }
-      }
-      return 'Specifica quale evento eliminare. Es: "Elimina evento 1"';
+
+    return { weekEvents, dayAnalysis };
+  }, [events]);
+
+  const findFreeSlots = useCallback((date) => {
+    const dateStr = typeof date === 'string' ? date : date.toISOString().split('T')[0];
+    const dayEvents = events
+      .filter(e => e.date === dateStr && e.time && e.endTime)
+      .sort((a, b) => a.time.localeCompare(b.time));
+
+    const slots = [];
+    const workStart = 9 * 60; // 9:00
+    const workEnd = 19 * 60; // 19:00
+
+    if (dayEvents.length === 0) {
+      slots.push({ start: '09:00', end: '19:00', duration: 600 });
+      return slots;
     }
-    
-    // Elimina abitudine
-    if (lower.includes('elimina abitudine')) {
-      const numMatch = message.match(/\d+/);
-      if (numMatch && habits[numMatch[0] - 1]) {
-        const habitTitle = habits[numMatch[0] - 1].title;
-        deleteHabit(habits[numMatch[0] - 1].id);
-        return `Ho eliminato l'abitudine ${numMatch[0]}: "${habitTitle}"`;
-      }
-    }
-    
-    // Attiva/Disattiva abitudine
-    if (lower.includes('disattiva abitudine') || lower.includes('attiva abitudine')) {
-      const numMatch = message.match(/\d+/);
-      if (numMatch && habits[numMatch[0] - 1]) {
-        toggleHabit(habits[numMatch[0] - 1].id);
-        const action = lower.includes('disattiva') ? 'disattivata' : 'attivata';
-        return `Ho ${action} l'abitudine ${numMatch[0]}: "${habits[numMatch[0] - 1].title}"`;
+
+    // Slot prima del primo evento
+    const [fh, fm] = dayEvents[0].time.split(':').map(Number);
+    const firstEventStart = fh * 60 + fm;
+    if (firstEventStart > workStart) {
+      const duration = firstEventStart - workStart;
+      if (duration >= 30) {
+        slots.push({
+          start: '09:00',
+          end: dayEvents[0].time,
+          duration
+        });
       }
     }
-    
-    // Lista eventi
-    if (lower.includes('lista eventi') || lower.includes('mostra eventi') || lower.includes('quali eventi')) {
-      const manualEvents = events.filter(e => !e.fromHabit);
-      if (manualEvents.length > 0) {
-        let response = 'Ecco i tuoi eventi:\n';
-        manualEvents.slice(0, 5).forEach((e, i) => {
-          response += `${i + 1}. ${e.title} - ${e.date}${e.time ? ` alle ${e.time}` : ''}\n`;
+
+    // Slot tra eventi
+    for (let i = 0; i < dayEvents.length - 1; i++) {
+      const [eh, em] = dayEvents[i].endTime.split(':').map(Number);
+      const [nh, nm] = dayEvents[i + 1].time.split(':').map(Number);
+      const gap = (nh * 60 + nm) - (eh * 60 + em);
+      
+      if (gap >= 30) {
+        slots.push({
+          start: dayEvents[i].endTime,
+          end: dayEvents[i + 1].time,
+          duration: gap
+        });
+      }
+    }
+
+    // Slot dopo l'ultimo evento
+    const [lh, lm] = dayEvents[dayEvents.length - 1].endTime.split(':').map(Number);
+    const lastEventEnd = lh * 60 + lm;
+    if (lastEventEnd < workEnd) {
+      const duration = workEnd - lastEventEnd;
+      if (duration >= 30) {
+        slots.push({
+          start: dayEvents[dayEvents.length - 1].endTime,
+          end: '19:00',
+          duration
+        });
+      }
+    }
+
+    return slots;
+  }, [events]);
+
+  const processAICommand = useCallback((message) => {
+    const lower = message.toLowerCase();
+    const { weekEvents, dayAnalysis } = analyzeCalendar();
+
+    // Trova giorni più liberi
+    if (lower.includes('giorni') && (lower.includes('liberi') || lower.includes('libero') || lower.includes('disponibil'))) {
+      const sortedDays = Object.entries(dayAnalysis)
+        .sort((a, b) => a[1].totalMinutes - b[1].totalMinutes)
+        .slice(0, 3);
+
+      let response = '📅 **Giorni più liberi questa settimana:**\n\n';
+      sortedDays.forEach(([date, info]) => {
+        const dayName = info.date.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'short' });
+        const hours = (info.totalMinutes / 60).toFixed(1);
+        response += `• **${dayName}**: ${info.events.length} eventi (${hours}h impegnate)\n`;
+      });
+      
+      return response;
+    }
+
+    // Trova giorni più occupati
+    if (lower.includes('giorni') && (lower.includes('occupat') || lower.includes('pieno') || lower.includes('pien'))) {
+      const sortedDays = Object.entries(dayAnalysis)
+        .sort((a, b) => b[1].totalMinutes - a[1].totalMinutes)
+        .slice(0, 3);
+
+      let response = '📊 **Giorni più occupati questa settimana:**\n\n';
+      sortedDays.forEach(([date, info]) => {
+        const dayName = info.date.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'short' });
+        const hours = (info.totalMinutes / 60).toFixed(1);
+        response += `• **${dayName}**: ${info.events.length} eventi (${hours}h impegnate)\n`;
+      });
+      
+      return response;
+    }
+
+    // Suggerisci slot per nuovo impegno
+    if (lower.includes('quando') && (lower.includes('inserire') || lower.includes('programmare') || lower.includes('mettere'))) {
+      // Estrai durata se specificata
+      const durationMatch = message.match(/(\d+)\s*(ora|ore|minuti|h|min)/i);
+      const requestedMinutes = durationMatch ? 
+        (durationMatch[2].includes('ora') || durationMatch[2].includes('h') ? 
+          parseInt(durationMatch[1]) * 60 : 
+          parseInt(durationMatch[1])) : 60;
+
+      let response = `🎯 **Migliori slot disponibili per un impegno di ${requestedMinutes >= 60 ? Math.floor(requestedMinutes/60) + 'h' : requestedMinutes + 'min'}:**\n\n`;
+      let foundSlots = 0;
+
+      Object.entries(dayAnalysis)
+        .sort((a, b) => a[1].totalMinutes - b[1].totalMinutes)
+        .forEach(([date, info]) => {
+          if (foundSlots >= 5) return;
+          
+          const slots = findFreeSlots(date);
+          const suitableSlots = slots.filter(s => s.duration >= requestedMinutes);
+          
+          if (suitableSlots.length > 0) {
+            const dayName = info.date.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'short' });
+            response += `📌 **${dayName}**\n`;
+            suitableSlots.slice(0, 2).forEach(slot => {
+              response += `   • ${slot.start} - ${slot.end} (${Math.floor(slot.duration/60)}h ${slot.duration%60}min liberi)\n`;
+              foundSlots++;
+            });
+          }
+        });
+
+      if (foundSlots === 0) {
+        response += 'Non ho trovato slot sufficientemente lunghi. Considera di:\n• Ridurre la durata dell\'impegno\n• Spostare altri eventi\n• Programmare per la settimana prossima';
+      }
+
+      return response;
+    }
+
+    // Analisi generale settimana
+    if (lower.includes('analisi') || lower.includes('come va') || lower.includes('settimana') || lower.includes('riepilogo')) {
+      const totalEvents = weekEvents.length;
+      const totalHours = Object.values(dayAnalysis).reduce((acc, day) => acc + day.totalMinutes, 0) / 60;
+      const freeDays = Object.values(dayAnalysis).filter(d => d.isFree).length;
+      
+      let response = `📊 **Analisi della tua settimana:**\n\n`;
+      response += `• **Eventi totali**: ${totalEvents}\n`;
+      response += `• **Ore impegnate**: ${totalHours.toFixed(1)}h\n`;
+      response += `• **Giorni completamente liberi**: ${freeDays}\n`;
+      response += `• **Media eventi/giorno**: ${(totalEvents / 7).toFixed(1)}\n\n`;
+      
+      if (totalHours > 40) {
+        response += '⚠️ La tua settimana è molto intensa. Cerca di ritagliarti momenti di pausa.';
+      } else if (totalHours < 20) {
+        response += '✅ Hai una buona quantità di tempo libero. Ottima gestione!';
+      } else {
+        response += '👍 La tua settimana è ben bilanciata tra impegni e tempo libero.';
+      }
+
+      return response;
+    }
+
+    // Cerca evento specifico
+    if (lower.includes('cerca') || lower.includes('trova')) {
+      const searchTerm = message.replace(/cerca|trova|evento/gi, '').trim();
+      const found = events.filter(e => 
+        e.title.toLowerCase().includes(searchTerm.toLowerCase())
+      ).slice(0, 5);
+
+      if (found.length > 0) {
+        let response = `🔍 **Ho trovato ${found.length} eventi:**\n\n`;
+        found.forEach(e => {
+          const date = new Date(e.date).toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' });
+          response += `• **${e.title}** - ${date}${e.time ? ` alle ${e.time}` : ''}\n`;
         });
         return response;
       }
-      return 'Non hai eventi manuali al momento.';
+      return 'Non ho trovato eventi corrispondenti alla tua ricerca.';
     }
-    
-    // Analisi calendario
-    if (lower.includes('analisi') || lower.includes('come va') || lower.includes('statistiche')) {
-      const totalEvents = events.length;
-      const activeHabits = habits.filter(h => h.active).length;
-      return `📊 Riepilogo:\n• ${totalEvents} eventi totali nel calendario\n• ${activeHabits} abitudini attive\n• La tua settimana è ben organizzata!`;
-    }
-    
-    // Slot liberi
-    if (lower.includes('slot liberi') || lower.includes('tempo libero') || lower.includes('quando sono libero')) {
-      return `🕐 Analisi tempo libero:\nHai diversi slot disponibili nelle mattinate e nei weekend. Ti consiglio di programmare attività rilassanti o hobby in questi momenti!`;
-    }
-    
+
     // Messaggio di aiuto
-    return `🤖 Posso aiutarti con:\n\n📅 Eventi: creare, modificare, eliminare e visualizzare eventi\n⏰ Abitudini: attivare, disattivare ed eliminare abitudini\n📊 Analisi: statistiche e informazioni sul tuo calendario\n🔍 Ricerca: trovare slot liberi e suggerire ottimizzazioni\n\nProva a chiedermi: "Crea evento: Riunione il 15/03 alle 10:00" oppure "Mostra i miei eventi"`;
-  };
+    return `🤖 **Come posso aiutarti?**\n\nProva a chiedermi:\n\n📅 "Quali sono i miei giorni più liberi?"\n📊 "Quali giorni sono più occupati?"\n🎯 "Quando posso inserire una riunione di 2 ore?"\n📈 "Fammi un'analisi della settimana"\n🔍 "Cerca evento [nome]"\n\nSono qui per ottimizzare il tuo tempo!`;
+  }, [analyzeCalendar, findFreeSlots, events]);
 
   const sendMessage = () => {
     if (chatInput.trim()) {
@@ -565,6 +646,7 @@ const CalendarioAI = () => {
     }
   };
 
+  // Calcoli calendario
   const monthDays = useMemo(() => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
@@ -593,22 +675,6 @@ const CalendarioAI = () => {
     return days;
   }, [currentDate]);
 
-  const getTodayDate = () => {
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const day = String(today.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
-  const isToday = (date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    const dateStr = `${year}-${month}-${day}`;
-    return dateStr === getTodayDate();
-  };
-
   const weekDays = useMemo(() => {
     const start = new Date(currentDate);
     start.setDate(start.getDate() - start.getDay() + 1);
@@ -618,6 +684,16 @@ const CalendarioAI = () => {
       return day;
     });
   }, [currentDate]);
+
+  const getTodayDate = () => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  };
+
+  const isToday = (date) => {
+    const dateStr = date.toISOString().split('T')[0];
+    return dateStr === getTodayDate();
+  };
 
   const navigateMonth = (direction) => {
     const newDate = new Date(currentDate);
@@ -643,8 +719,8 @@ const CalendarioAI = () => {
   }, [events]);
 
   const getTodayEvents = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
-    return events.filter(e => e.date === today);
+    const today = getTodayDate();
+    return events.filter(e => e.date === today).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
   }, [events]);
 
   const getWeeklyStats = useMemo(() => {
@@ -682,7 +758,7 @@ const CalendarioAI = () => {
           <div className="text-center mb-8">
             <Calendar className="w-16 h-16 text-blue-500 mx-auto mb-4" />
             <h1 className="text-3xl font-bold text-gray-900">Calendario AI</h1>
-            <p className="text-gray-600 mt-2">Organizza la tua vita con intelligenza artificiale</p>
+            <p className="text-gray-600 mt-2">Il tuo assistente intelligente per organizzare il tempo</p>
           </div>
 
           <form onSubmit={handleAuth} className="space-y-4">
@@ -742,14 +818,28 @@ const CalendarioAI = () => {
 
   return (
     <div className={`min-h-screen ${bgClass} transition-colors duration-300`}>
-      <header className={`${cardClass} border-b ${borderClass} px-6 py-4`}>
+      <header className={`${cardClass} border-b ${borderClass} px-6 py-4 sticky top-0 z-40`}>
         <div className="flex items-center justify-between max-w-7xl mx-auto">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <Calendar className="w-7 h-7 text-blue-500" />
             <h1 className="text-2xl font-bold">Calendario AI</h1>
           </div>
           <div className="flex items-center gap-3">
             {saving && <span className="text-xs text-gray-500">Salvataggio...</span>}
+            
+            {/* Pulsante Assistente AI - Sempre visibile */}
+            <button
+              onClick={() => setShowAIPanel(!showAIPanel)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                showAIPanel 
+                  ? 'bg-blue-500 text-white' 
+                  : darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+              }`}
+            >
+              <Zap className="w-5 h-5" />
+              <span className="font-medium">Assistente AI</span>
+            </button>
+
             <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
               <User className="w-4 h-4" />
               <span className="text-sm">{user.email}</span>
@@ -770,14 +860,13 @@ const CalendarioAI = () => {
         </div>
       </header>
 
-      <nav className={`${cardClass} border-b ${borderClass}`}>
+      <nav className={`${cardClass} border-b ${borderClass} sticky top-[73px] z-30`}>
         <div className="max-w-7xl mx-auto px-6">
           <div className="flex gap-1">
             {[
               { id: 'home', icon: Calendar, label: 'Calendario' },
               { id: 'habits', icon: Clock, label: 'Abitudini' },
-              { id: 'assistant', icon: MessageSquare, label: 'Assistente AI' },
-              { id: 'analytics', icon: BarChart3, label: 'Analisi' }
+              { id: 'analytics', icon: BarChart3, label: 'Statistiche' }
             ].map(tab => (
               <button
                 key={tab.id}
@@ -797,532 +886,594 @@ const CalendarioAI = () => {
       </nav>
 
       <main className="max-w-7xl mx-auto px-6 py-6">
-        {activeTab === 'home' && (
-          <div className="flex gap-6">
-            <div className={`flex-1 ${cardClass} rounded-xl p-6 border ${borderClass}`}>
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex gap-2">
-                  {['month', 'week', 'day'].map(mode => (
-                    <button
-                      key={mode}
-                      onClick={() => setViewMode(mode)}
-                      className={`px-4 py-2 rounded-lg transition ${
-                        viewMode === mode
-                          ? 'bg-blue-500 text-white'
-                          : darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'
-                      }`}
-                    >
-                      {mode === 'month' ? 'Mese' : mode === 'week' ? 'Settimana' : 'Giorno'}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  onClick={() => setShowEventModal(true)}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
-                >
-                  <Plus className="w-4 h-4" />
-                  Nuovo Evento
-                </button>
-              </div>
-
-              {viewMode === 'month' && (
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <button onClick={() => navigateMonth(-1)} className="p-2 hover:bg-gray-200 rounded">
-                      <ChevronLeft className="w-5 h-5" />
-                    </button>
-                    <h2 className="text-lg font-semibold">
-                      {currentDate.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })}
-                    </h2>
-                    <button onClick={() => navigateMonth(1)} className="p-2 hover:bg-gray-200 rounded">
-                      <ChevronRight className="w-5 h-5" />
-                    </button>
-                  </div>
-                  
-                  <div className="grid grid-cols-7 gap-2 mb-2">
-                    {['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'].map(day => (
-                      <div key={day} className="text-center text-sm font-semibold opacity-60 py-2">
-                        {day}
-                      </div>
+        <div className="flex gap-6">
+          {/* Contenuto principale */}
+          <div className={`flex-1 transition-all duration-300 ${showAIPanel ? 'mr-0' : ''}`}>
+            {activeTab === 'home' && (
+              <div className={`${cardClass} rounded-xl p-6 border ${borderClass}`}>
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex gap-2">
+                    {['month', 'week', 'day'].map(mode => (
+                      <button
+                        key={mode}
+                        onClick={() => setViewMode(mode)}
+                        className={`px-4 py-2 rounded-lg transition ${
+                          viewMode === mode
+                            ? 'bg-blue-500 text-white'
+                            : darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'
+                        }`}
+                      >
+                        {mode === 'month' ? 'Mese' : mode === 'week' ? 'Settimana' : 'Giorno'}
+                      </button>
                     ))}
                   </div>
-                  
-                  <div className="grid grid-cols-7 gap-2">
-                    {monthDays.map((day, i) => {
-                      const dayEvents = getEventsForDate(day.date);
-                      const today = isToday(day.date);
-                      
-                      return (
-                        <div
-                          key={i}
-                          onClick={() => {
-                            setCurrentDate(day.date);
-                            setViewMode('day');
-                          }}
-                          className={`${darkMode ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg p-2 min-h-24 cursor-pointer hover:ring-2 hover:ring-blue-300 transition ${
-                            !day.isCurrentMonth ? 'opacity-40' : ''
-                          } ${today ? 'ring-2 ring-blue-500' : ''}`}
-                        >
-                          <div className={`text-sm font-semibold mb-1 ${today ? 'text-blue-500' : ''}`}>
-                            {day.date.getDate()}
-                          </div>
-                          <div className="space-y-1">
-                            {dayEvents.slice(0, 3).map(event => (
-                              <div
-                                key={event.id}
-                                className="text-xs p-1 rounded truncate"
-                                style={{ backgroundColor: (categories[event.category] || '#8b5cf6') + '40' }}
-                              >
-                                {event.title}
-                              </div>
-                            ))}
-                            {dayEvents.length > 3 && (
-                              <div className="text-xs opacity-60">+{dayEvents.length - 3} altri</div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <button
+                    onClick={() => {
+                      setNewEvent({
+                        title: '',
+                        date: currentDate.toISOString().split('T')[0],
+                        time: '',
+                        endTime: '',
+                        category: 'personale',
+                        description: ''
+                      });
+                      setEditingEvent(null);
+                      setShowEventModal(true);
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Nuovo Evento
+                  </button>
                 </div>
-              )}
 
-              {viewMode === 'week' && (
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <button onClick={() => navigateWeek(-1)}>
-                      <ChevronLeft className="w-5 h-5" />
-                    </button>
-                    <h2 className="text-lg font-semibold">
-                      {currentDate.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })}
-                    </h2>
-                    <button onClick={() => navigateWeek(1)}>
-                      <ChevronRight className="w-5 h-5" />
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-7 gap-2">
-                    {weekDays.map((day, i) => {
-                      const dayEvents = getEventsForDate(day);
-                      const today = isToday(day);
-                      
-                      return (
-                        <div 
-                          key={i} 
-                          onClick={() => {
-                            setCurrentDate(day);
-                            setViewMode('day');
-                          }}
-                          className={`${darkMode ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg p-3 min-h-32 cursor-pointer hover:ring-2 hover:ring-blue-300 transition ${today ? 'ring-2 ring-blue-500' : ''}`}
-                        >
-                          <div className="text-center mb-2">
-                            <div className="text-xs opacity-60">
-                              {day.toLocaleDateString('it-IT', { weekday: 'short' })}
-                            </div>
-                            <div className={`font-semibold ${today ? 'text-blue-500' : ''}`}>{day.getDate()}</div>
-                          </div>
-                          <div className="space-y-1">
-                            {dayEvents.map(event => (
-                              <div
-                                key={event.id}
-                                className="text-xs p-1 rounded"
-                                style={{ backgroundColor: (categories[event.category] || '#8b5cf6') + '40', borderLeft: `3px solid ${categories[event.category] || '#8b5cf6'}` }}
-                              >
-                                <div className="font-medium truncate">{event.title}</div>
-                                {event.time && <div className="opacity-75">{event.time}</div>}
-                              </div>
-                            ))}
-                          </div>
+                {/* Vista Mese */}
+                {viewMode === 'month' && (
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <button onClick={() => navigateMonth(-1)} className={`p-2 hover:${darkMode ? 'bg-gray-700' : 'bg-gray-200'} rounded`}>
+                        <ChevronLeft className="w-5 h-5" />
+                      </button>
+                      <h2 className="text-xl font-semibold">
+                        {currentDate.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })}
+                      </h2>
+                      <button onClick={() => navigateMonth(1)} className={`p-2 hover:${darkMode ? 'bg-gray-700' : 'bg-gray-200'} rounded`}>
+                        <ChevronRight className="w-5 h-5" />
+                      </button>
+                    </div>
+                    
+                    <div className="grid grid-cols-7 gap-2 mb-2">
+                      {['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'].map(day => (
+                        <div key={day} className="text-center text-sm font-semibold opacity-60 py-2">
+                          {day}
                         </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {viewMode === 'day' && (
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <button onClick={() => navigateDay(-1)} className="p-2 hover:bg-gray-200 rounded">
-                      <ChevronLeft className="w-5 h-5" />
-                    </button>
-                    <h2 className="text-lg font-semibold">
-                      {currentDate.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-                    </h2>
-                    <button onClick={() => navigateDay(1)} className="p-2 hover:bg-gray-200 rounded">
-                      <ChevronRight className="w-5 h-5" />
-                    </button>
-                  </div>
-                  
-                  <div className={`${darkMode ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg p-6`}>
-                    <div className="space-y-3">
-                      {getEventsForDate(currentDate).length > 0 ? (
-                        getEventsForDate(currentDate).map(event => (
+                      ))}
+                    </div>
+                    
+                    <div className="grid grid-cols-7 gap-2">
+                      {monthDays.map((day, i) => {
+                        const dayEvents = getEventsForDate(day.date);
+                        const today = isToday(day.date);
+                        
+                        return (
                           <div
-                            key={event.id}
-                            className={`p-4 rounded-lg ${darkMode ? 'bg-gray-600' : 'bg-white'} border-l-4`}
-                            style={{ borderColor: categories[event.category] || '#8b5cf6' }}
+                            key={i}
+                            onClick={() => {
+                              setCurrentDate(day.date);
+                              setViewMode('day');
+                            }}
+                            className={`${darkMode ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg p-2 min-h-24 cursor-pointer hover:ring-2 hover:ring-blue-400 transition ${
+                              !day.isCurrentMonth ? 'opacity-40' : ''
+                            } ${today ? 'ring-2 ring-blue-500' : ''}`}
                           >
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <h3 className="font-semibold text-lg mb-1">{event.title}</h3>
-                                {event.time && (
-                                  <div className="flex items-center gap-2 text-sm opacity-75">
-                                    <Clock className="w-4 h-4" />
-                                    {event.time} {event.endTime && `- ${event.endTime}`}
-                                  </div>
-                                )}
-                                {event.description && (
-                                  <p className="mt-2 text-sm opacity-75">{event.description}</p>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-2">
+                            <div className={`text-sm font-semibold mb-1 ${today ? 'text-blue-500' : ''}`}>
+                              {day.date.getDate()}
+                            </div>
+                            <div className="space-y-1">
+                              {dayEvents.slice(0, 3).map(event => (
                                 <div
-                                  className="w-4 h-4 rounded-full"
-                                  style={{ backgroundColor: categories[event.category] || '#8b5cf6' }}
-                                />
+                                  key={event.id}
+                                  className="text-xs p-1 rounded truncate"
+                                  style={{ backgroundColor: (categories[event.category] || '#8b5cf6') + '40' }}
+                                >
+                                  {event.title}
+                                </div>
+                              ))}
+                              {dayEvents.length > 3 && (
+                                <div className="text-xs opacity-60">+{dayEvents.length - 3}</div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Vista Settimana */}
+                {viewMode === 'week' && (
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <button onClick={() => navigateWeek(-1)} className={`p-2 hover:${darkMode ? 'bg-gray-700' : 'bg-gray-200'} rounded`}>
+                        <ChevronLeft className="w-5 h-5" />
+                      </button>
+                      <h2 className="text-xl font-semibold">
+                        {currentDate.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })}
+                      </h2>
+                      <button onClick={() => navigateWeek(1)} className={`p-2 hover:${darkMode ? 'bg-gray-700' : 'bg-gray-200'} rounded`}>
+                        <ChevronRight className="w-5 h-5" />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-7 gap-2">
+                      {weekDays.map((day, i) => {
+                        const dayEvents = getEventsForDate(day);
+                        const today = isToday(day);
+                        
+                        return (
+                          <div 
+                            key={i} 
+                            onClick={() => {
+                              setCurrentDate(day);
+                              setViewMode('day');
+                            }}
+                            className={`${darkMode ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg p-3 min-h-32 cursor-pointer hover:ring-2 hover:ring-blue-400 transition ${today ? 'ring-2 ring-blue-500' : ''}`}
+                          >
+                            <div className="text-center mb-2">
+                              <div className="text-xs opacity-60">
+                                {day.toLocaleDateString('it-IT', { weekday: 'short' })}
+                              </div>
+                              <div className={`font-semibold ${today ? 'text-blue-500' : ''}`}>{day.getDate()}</div>
+                            </div>
+                            <div className="space-y-1">
+                              {dayEvents.map(event => (
+                                <div
+                                  key={event.id}
+                                  className="text-xs p-1 rounded"
+                                  style={{ backgroundColor: (categories[event.category] || '#8b5cf6') + '40', borderLeft: `3px solid ${categories[event.category] || '#8b5cf6'}` }}
+                                >
+                                  <div className="font-medium truncate">{event.title}</div>
+                                  {event.time && <div className="opacity-75">{event.time}</div>}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Vista Giorno */}
+                {viewMode === 'day' && (
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <button onClick={() => navigateDay(-1)} className={`p-2 hover:${darkMode ? 'bg-gray-700' : 'bg-gray-200'} rounded`}>
+                        <ChevronLeft className="w-5 h-5" />
+                      </button>
+                      <h2 className="text-xl font-semibold">
+                        {currentDate.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                      </h2>
+                      <button onClick={() => navigateDay(1)} className={`p-2 hover:${darkMode ? 'bg-gray-700' : 'bg-gray-200'} rounded`}>
+                        <ChevronRight className="w-5 h-5" />
+                      </button>
+                    </div>
+                    
+                    <div className={`${darkMode ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg p-6`}>
+                      <div className="space-y-3">
+                        {getEventsForDate(currentDate).length > 0 ? (
+                          getEventsForDate(currentDate).map(event => (
+                            <div
+                              key={event.id}
+                              className={`p-4 rounded-lg ${darkMode ? 'bg-gray-600' : 'bg-white'} border-l-4 shadow-sm`}
+                              style={{ borderColor: categories[event.category] || '#8b5cf6' }}
+                            >
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <h3 className="font-semibold text-lg mb-1">{event.title}</h3>
+                                  {event.time && (
+                                    <div className="flex items-center gap-2 text-sm opacity-75">
+                                      <Clock className="w-4 h-4" />
+                                      {event.time} {event.endTime && `- ${event.endTime}`}
+                                    </div>
+                                  )}
+                                  {event.description && (
+                                    <p className="mt-2 text-sm opacity-75">{event.description}</p>
+                                  )}
+                                  <div className="mt-2">
+                                    <span className="text-xs px-2 py-1 rounded-full" style={{ backgroundColor: (categories[event.category] || '#8b5cf6') + '20', color: categories[event.category] || '#8b5cf6' }}>
+                                      {event.category}
+                                    </span>
+                                  </div>
+                                </div>
                                 {!event.fromHabit && (
-                                  <>
+                                  <div className="flex gap-2">
                                     <button
                                       onClick={() => editEvent(event)}
-                                      className="p-2 hover:bg-gray-500 rounded transition"
+                                      className={`p-2 hover:${darkMode ? 'bg-gray-500' : 'bg-gray-200'} rounded transition`}
                                     >
                                       <Edit2 className="w-4 h-4" />
                                     </button>
                                     <button
-                                      onClick={() => duplicateEvent(event)}
-                                      className="p-2 hover:bg-gray-500 rounded transition"
-                                      title="Duplica evento"
-                                    >
-                                      <Plus className="w-4 h-4" />
-                                    </button>
-                                    <button
                                       onClick={() => deleteEvent(event.id)}
-                                      className="p-2 hover:bg-gray-500 rounded text-red-500 transition"
+                                      className={`p-2 hover:${darkMode ? 'bg-gray-500' : 'bg-gray-200'} rounded text-red-500 transition`}
                                     >
                                       <Trash2 className="w-4 h-4" />
                                     </button>
-                                  </>
+                                  </div>
                                 )}
                               </div>
                             </div>
+                          ))
+                        ) : (
+                          <div className="text-center py-12 opacity-60">
+                            <Calendar className="w-12 h-12 mx-auto mb-3 opacity-40" />
+                            <p>Nessun evento per questo giorno</p>
+                            <button
+                              onClick={() => {
+                                setNewEvent({
+                                  ...newEvent,
+                                  date: currentDate.toISOString().split('T')[0]
+                                });
+                                setShowEventModal(true);
+                              }}
+                              className="mt-4 text-blue-500 hover:text-blue-600 text-sm"
+                            >
+                              Aggiungi un evento
+                            </button>
                           </div>
-                        ))
-                      ) : (
-                        <div className="text-center py-12 opacity-60">
-                          <Calendar className="w-12 h-12 mx-auto mb-3 opacity-40" />
-                          <p>Nessun evento per questo giorno</p>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
-            </div>
-
-            <div className="w-80 space-y-4">
-              <div className={`${cardClass} rounded-xl p-4 border ${borderClass}`}>
-                <h3 className="font-semibold mb-3">Eventi di Oggi</h3>
-                <div className="space-y-2">
-                  {getTodayEvents.length > 0 ? (
-                    getTodayEvents.map(event => (
-                      <div key={event.id} className={`p-3 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="font-medium">{event.title}</div>
-                            {event.time && <div className="text-sm opacity-60">{event.time}</div>}
-                          </div>
-                          <div
-                            className="w-3 h-3 rounded-full mt-1"
-                            style={{ backgroundColor: categories[event.category] || '#8b5cf6' }}
-                          />
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-sm opacity-60">Nessun evento oggi</p>
-                  )}
-                </div>
-              </div>
-
-              <div className={`${cardClass} rounded-xl p-4 border ${borderClass}`}>
-                <h3 className="font-semibold mb-3">Abitudini Attive</h3>
-                <div className="space-y-2">
-                  {habits.filter(h => h.active).length > 0 ? (
-                    habits.filter(h => h.active).map((habit) => (
-                      <div key={habit.id} className={`p-3 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
-                        <div className="font-medium text-sm">{habit.title}</div>
-                        <div className="text-xs opacity-60 mt-1">
-                          {habit.startTime} - {habit.endTime}
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-sm opacity-60">Nessuna abitudine attiva</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'habits' && (
-          <div className={`${cardClass} rounded-xl p-6 border ${borderClass} max-w-3xl mx-auto`}>
-            <h2 className="text-2xl font-bold mb-6">Le Tue Abitudini</h2>
-            
-            <div className="mb-6">
-              <button
-                onClick={() => setShowHabitModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
-              >
-                <Plus className="w-4 h-4" />
-                Nuova Abitudine
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              {habits.map((habit, idx) => (
-                <div
-                  key={habit.id}
-                  className={`p-4 rounded-lg border ${borderClass} ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="text-xs font-mono opacity-60">#{idx + 1}</span>
-                        <h3 className="font-semibold">{habit.title}</h3>
-                        <div
-                          className="w-2 h-2 rounded-full"
-                          style={{ backgroundColor: categories[habit.category] || '#8b5cf6' }}
-                        />
-                      </div>
-                      <p className="text-sm opacity-75">{habit.original}</p>
-                      <div className="text-xs opacity-60 mt-1">
-                        Giorni: {habit.days.map(d => ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'][d]).join(', ')}
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => toggleHabit(habit.id)}
-                        className={`p-2 rounded ${habit.active ? 'text-green-500' : 'opacity-40'} hover:bg-gray-600 transition`}
-                      >
-                        <Power className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => deleteHabit(habit.id)}
-                        className="p-2 rounded text-red-500 hover:bg-gray-600 transition"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-              {habits.length === 0 && (
-                <p className="text-center py-8 opacity-60">
-                  Non hai ancora creato abitudini. Inizia aggiungendone una!
-                </p>
-              )}
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'assistant' && (
-          <div className={`${cardClass} rounded-xl border ${borderClass} max-w-3xl mx-auto h-[600px] flex flex-col`}>
-            <div className={`p-4 border-b ${borderClass}`}>
-              <h2 className="text-xl font-bold">Assistente AI</h2>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {chatMessages.map((msg, idx) => (
-                <div
-                  key={idx}
-                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div
-                    className={`max-w-[80%] p-3 rounded-lg whitespace-pre-line ${
-                      msg.role === 'user'
-                        ? 'bg-blue-500 text-white'
-                        : darkMode ? 'bg-gray-700' : 'bg-gray-100'
-                    }`}
-                  >
-                    {msg.content}
-                  </div>
-                </div>
-              ))}
-            </div>
-            
-            <div className={`p-4 border-t ${borderClass}`}>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-                  placeholder="Scrivi un messaggio..."
-                  className={`flex-1 px-4 py-2 rounded-lg border ${borderClass} ${darkMode ? 'bg-gray-700' : 'bg-white'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
-                />
-                <button
-                  onClick={sendMessage}
-                  className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
-                >
-                  Invia
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'analytics' && (
-          <div className={`${cardClass} rounded-xl p-6 border ${borderClass} max-w-3xl mx-auto`}>
-            <h2 className="text-2xl font-bold mb-6">Analisi Settimanale</h2>
-            
-            <div className="space-y-4">
-              <div className={`p-4 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
-                <h3 className="font-semibold mb-3">Ore per Categoria</h3>
-                {Object.entries(getWeeklyStats).length > 0 ? (
-                  Object.entries(getWeeklyStats).map(([cat, hours]) => (
-                    <div key={cat} className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: categories[cat] || '#8b5cf6' }} />
-                        <span className="capitalize">{cat}</span>
-                      </div>
-                      <span className="font-semibold">{hours.toFixed(1)}h</span>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-sm opacity-60">Nessun dato disponibile</p>
                 )}
               </div>
+            )}
 
-              <div className={`p-4 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
-                <h3 className="font-semibold mb-3">Insight dell'AI</h3>
-                <ul className="space-y-2 text-sm">
-                  <li className="flex items-start gap-2">
-                    <TrendingUp className="w-4 h-4 mt-0.5 text-green-500" />
-                    <span>La tua settimana è ben bilanciata tra lavoro e tempo personale.</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <TrendingUp className="w-4 h-4 mt-0.5 text-blue-500" />
-                    <span>Livello di produttività: Alto. Continua così!</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <TrendingUp className="w-4 h-4 mt-0.5 text-yellow-500" />
-                    <span>Suggerimento: Considera di aggiungere più pause tra gli impegni intensi.</span>
-                  </li>
-                </ul>
+            {activeTab === 'habits' && (
+              <div className={`${cardClass} rounded-xl p-6 border ${borderClass}`}>
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-2xl font-bold">Le Tue Abitudini</h2>
+                  <button
+                    onClick={() => setShowHabitModal(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Nuova Abitudine
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  {habits.map((habit, idx) => (
+                    <div
+                      key={habit.id}
+                      className={`p-4 rounded-lg border ${borderClass} ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <span className="text-xs font-mono opacity-60">#{idx + 1}</span>
+                            <h3 className="font-semibold text-lg">{habit.title}</h3>
+                            <div
+                              className="w-3 h-3 rounded-full"
+                              style={{ backgroundColor: categories[habit.category] || '#8b5cf6' }}
+                            />
+                          </div>
+                          <p className="text-sm opacity-75 mb-2">{habit.original}</p>
+                          <div className="flex gap-4 text-xs opacity-60">
+                            <div>
+                              <strong>Giorni:</strong> {habit.days.map(d => ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'][d]).join(', ')}
+                            </div>
+                            <div>
+                              <strong>Orario:</strong> {habit.startTime} - {habit.endTime}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => toggleHabit(habit.id)}
+                            className={`p-2 rounded ${habit.active ? 'text-green-500 bg-green-500 bg-opacity-20' : 'opacity-40'} hover:bg-opacity-30 transition`}
+                            title={habit.active ? 'Disattiva' : 'Attiva'}
+                          >
+                            <Power className="w-5 h-5" />
+                          </button>
+                          <button
+                            onClick={() => deleteHabit(habit.id)}
+                            className={`p-2 rounded text-red-500 hover:${darkMode ? 'bg-gray-600' : 'bg-red-50'} transition`}
+                          >
+                            <Trash2 className="w-5 h-5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {habits.length === 0 && (
+                    <div className="text-center py-12 opacity-60">
+                      <Clock className="w-12 h-12 mx-auto mb-3 opacity-40" />
+                      <p className="mb-4">Non hai ancora creato abitudini</p>
+                      <button
+                        onClick={() => setShowHabitModal(true)}
+                        className="text-blue-500 hover:text-blue-600"
+                      >
+                        Crea la tua prima abitudine
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'analytics' && (
+              <div className={`${cardClass} rounded-xl p-6 border ${borderClass}`}>
+                <h2 className="text-2xl font-bold mb-6">Statistiche e Analisi</h2>
+                
+                <div className="grid gap-4">
+                  <div className={`p-4 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
+                    <h3 className="font-semibold mb-3 flex items-center gap-2">
+                      <BarChart3 className="w-5 h-5 text-blue-500" />
+                      Ore per Categoria
+                    </h3>
+                    {Object.entries(getWeeklyStats).length > 0 ? (
+                      <div className="space-y-2">
+                        {Object.entries(getWeeklyStats).map(([cat, hours]) => (
+                          <div key={cat} className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: categories[cat] || '#8b5cf6' }} />
+                              <span className="capitalize">{cat}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="w-32 h-2 bg-gray-300 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full rounded-full"
+                                  style={{
+                                    width: `${Math.min((hours / 40) * 100, 100)}%`,
+                                    backgroundColor: categories[cat] || '#8b5cf6'
+                                  }}
+                                />
+                              </div>
+                              <span className="font-semibold w-12 text-right">{hours.toFixed(1)}h</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm opacity-60">Nessun dato disponibile</p>
+                    )}
+                  </div>
+
+                  <div className={`p-4 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
+                    <h3 className="font-semibold mb-3 flex items-center gap-2">
+                      <TrendingUp className="w-5 h-5 text-green-500" />
+                      Panoramica
+                    </h3>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="text-center p-3 rounded-lg" style={{ backgroundColor: darkMode ? '#374151' : '#f3f4f6' }}>
+                        <div className="text-2xl font-bold text-green-500">{habits.filter(h => h.active).length}</div>
+                        <div className="text-sm opacity-60">Abitudini Attive</div>
+                      </div>
+                      <div className="text-center p-3 rounded-lg" style={{ backgroundColor: darkMode ? '#374151' : '#f3f4f6' }}>
+                        <div className="text-2xl font-bold text-purple-500">{events.length}</div>
+                        <div className="text-sm opacity-60">Eventi Totali</div>
+                      </div>
+                      <div className="text-center p-3 rounded-lg" style={{ backgroundColor: darkMode ? '#374151' : '#f3f4f6' }}>
+                        <div className="text-2xl font-bold text-orange-500">{getTodayEvents.length}</div>
+                        <div className="text-sm opacity-60">Eventi Oggi</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className={`p-4 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
+                    <h3 className="font-semibold mb-3 flex items-center gap-2">
+                      <Zap className="w-5 h-5 text-yellow-500" />
+                      Suggerimenti AI
+                    </h3>
+                    <ul className="space-y-2 text-sm">
+                      <li className="flex items-start gap-2">
+                        <TrendingUp className="w-4 h-4 mt-0.5 text-green-500 flex-shrink-0" />
+                        <span>Il tuo calendario è ben organizzato. Continua così!</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <TrendingUp className="w-4 h-4 mt-0.5 text-blue-500 flex-shrink-0" />
+                        <span>Chiedi all'assistente AI di trovare i migliori slot per nuovi impegni.</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <TrendingUp className="w-4 h-4 mt-0.5 text-yellow-500 flex-shrink-0" />
+                        <span>Usa le abitudini per automatizzare eventi ricorrenti.</span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Pannello Assistente AI - Sidebar */}
+          {showAIPanel && (
+            <div className={`w-96 ${cardClass} rounded-xl border ${borderClass} flex flex-col sticky top-[145px] h-[calc(100vh-180px)]`}>
+              <div className={`p-4 border-b ${borderClass} flex items-center justify-between`}>
+                <div className="flex items-center gap-2">
+                  <Zap className="w-5 h-5 text-blue-500" />
+                  <h3 className="font-bold">Assistente AI</h3>
+                </div>
+                <button
+                  onClick={() => setShowAIPanel(false)}
+                  className={`p-1 rounded hover:${darkMode ? 'bg-gray-700' : 'bg-gray-100'}`}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {chatMessages.map((msg, idx) => (
+                  <div
+                    key={idx}
+                    className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div
+                      className={`max-w-[85%] p-3 rounded-lg whitespace-pre-line text-sm ${
+                        msg.role === 'user'
+                          ? 'bg-blue-500 text-white rounded-br-none'
+                          : darkMode ? 'bg-gray-700 rounded-bl-none' : 'bg-gray-100 rounded-bl-none'
+                      }`}
+                    >
+                      {msg.content}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              
+              <div className={`p-4 border-t ${borderClass}`}>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+                    placeholder="Chiedimi qualcosa..."
+                    className={`flex-1 px-3 py-2 text-sm rounded-lg border ${borderClass} ${darkMode ? 'bg-gray-700' : 'bg-white'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                  />
+                  <button
+                    onClick={sendMessage}
+                    disabled={!chatInput.trim()}
+                    className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {['Giorni liberi?', 'Analisi settimana', 'Quando inserire riunione?'].map(quick => (
+                    <button
+                      key={quick}
+                      onClick={() => {
+                        setChatInput(quick);
+                        setTimeout(() => sendMessage(), 100);
+                      }}
+                      className={`text-xs px-2 py-1 rounded ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'} transition`}
+                    >
+                      {quick}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </main>
 
+      {/* Modal Nuovo/Modifica Evento */}
       {showEventModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className={`${cardClass} rounded-xl p-6 max-w-md w-full`}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xl font-bold">
-                {editingEvent ? 'Modifica Evento' : duplicatingEvent ? 'Duplica Evento' : 'Nuovo Evento'}
+                {editingEvent ? 'Modifica Evento' : 'Nuovo Evento'}
               </h3>
               <button onClick={() => {
                 setShowEventModal(false);
                 setEditingEvent(null);
-                setDuplicatingEvent(null);
-                setCustomCategory('');
-                setNewEvent({ title: '', date: '', time: '', category: 'personale', description: '' });
+                setNewEvent({ title: '', date: '', time: '', endTime: '', category: 'personale', description: '' });
               }}>
                 <X className="w-5 h-5" />
               </button>
             </div>
             
             <div className="space-y-4">
-              <input
-                type="text"
-                placeholder="Titolo"
-                value={newEvent.title}
-                onChange={(e) => setNewEvent({ ...newEvent, title: e.target.value })}
-                className={`w-full px-4 py-2 rounded-lg border ${borderClass} ${darkMode ? 'bg-gray-700' : 'bg-white'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
-              />
-              
-              <input
-                type="date"
-                value={newEvent.date}
-                onChange={(e) => setNewEvent({ ...newEvent, date: e.target.value })}
-                className={`w-full px-4 py-2 rounded-lg border ${borderClass} ${darkMode ? 'bg-gray-700' : 'bg-white'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
-              />
-              
-              <input
-                type="time"
-                value={newEvent.time}
-                onChange={(e) => setNewEvent({ ...newEvent, time: e.target.value })}
-                className={`w-full px-4 py-2 rounded-lg border ${borderClass} ${darkMode ? 'bg-gray-700' : 'bg-white'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
-              />
+              <div>
+                <label className="block text-sm font-medium mb-2">Titolo *</label>
+                <input
+                  type="text"
+                  placeholder="Es: Riunione con il team"
+                  value={newEvent.title}
+                  onChange={(e) => setNewEvent({ ...newEvent, title: e.target.value })}
+                  className={`w-full px-4 py-2 rounded-lg border ${borderClass} ${darkMode ? 'bg-gray-700' : 'bg-white'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                />
+              </div>
               
               <div>
+                <label className="block text-sm font-medium mb-2">Data *</label>
+                <input
+                  type="date"
+                  value={newEvent.date}
+                  onChange={(e) => setNewEvent({ ...newEvent, date: e.target.value })}
+                  className={`w-full px-4 py-2 rounded-lg border ${borderClass} ${darkMode ? 'bg-gray-700' : 'bg-white'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium mb-2">Ora Inizio</label>
+                  <input
+                    type="time"
+                    value={newEvent.time}
+                    onChange={(e) => setNewEvent({ ...newEvent, time: e.target.value })}
+                    className={`w-full px-4 py-2 rounded-lg border ${borderClass} ${darkMode ? 'bg-gray-700' : 'bg-white'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Ora Fine</label>
+                  <input
+                    type="time"
+                    value={newEvent.endTime}
+                    onChange={(e) => setNewEvent({ ...newEvent, endTime: e.target.value })}
+                    className={`w-full px-4 py-2 rounded-lg border ${borderClass} ${darkMode ? 'bg-gray-700' : 'bg-white'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                  />
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium mb-2">Categoria</label>
                 <select
                   value={newEvent.category}
-                  onChange={(e) => {
-                    if (e.target.value === 'custom') {
-                      setCustomCategory('');
-                      setNewEvent({ ...newEvent, category: '' });
-                    } else {
-                      setNewEvent({ ...newEvent, category: e.target.value });
-                      setCustomCategory('');
-                    }
-                  }}
+                  onChange={(e) => setNewEvent({ ...newEvent, category: e.target.value })}
                   className={`w-full px-4 py-2 rounded-lg border ${borderClass} ${darkMode ? 'bg-gray-700' : 'bg-white'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
                 >
                   {Object.keys(categories).map(cat => (
                     <option key={cat} value={cat}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</option>
                   ))}
-                  <option value="custom">+ Categoria Personalizzata</option>
                 </select>
-                
-                {(newEvent.category === '' || newEvent.category === 'custom' || !categories[newEvent.category]) && (
-                  <input
-                    type="text"
-                    placeholder="Nome categoria personalizzata"
-                    value={customCategory || newEvent.category}
-                    onChange={(e) => {
-                      setCustomCategory(e.target.value);
-                      setNewEvent({ ...newEvent, category: e.target.value });
-                    }}
-                    className={`w-full px-4 py-2 rounded-lg border ${borderClass} ${darkMode ? 'bg-gray-700' : 'bg-white'} focus:outline-none focus:ring-2 focus:ring-blue-500 mt-2`}
-                  />
-                )}
               </div>
               
-              <textarea
-                placeholder="Descrizione (opzionale)"
-                value={newEvent.description}
-                onChange={(e) => setNewEvent({ ...newEvent, description: e.target.value })}
-                className={`w-full px-4 py-2 rounded-lg border ${borderClass} ${darkMode ? 'bg-gray-700' : 'bg-white'} focus:outline-none focus:ring-2 focus:ring-blue-500 h-24`}
-              />
+              <div>
+                <label className="block text-sm font-medium mb-2">Descrizione</label>
+                <textarea
+                  placeholder="Note aggiuntive (opzionale)"
+                  value={newEvent.description}
+                  onChange={(e) => setNewEvent({ ...newEvent, description: e.target.value })}
+                  className={`w-full px-4 py-2 rounded-lg border ${borderClass} ${darkMode ? 'bg-gray-700' : 'bg-white'} focus:outline-none focus:ring-2 focus:ring-blue-500 h-20`}
+                />
+              </div>
               
               <button
                 onClick={addEvent}
-                className="w-full py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
+                className="w-full py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition font-medium"
               >
-                {editingEvent ? 'Salva Modifiche' : duplicatingEvent ? 'Crea Copia' : 'Crea Evento'}
+                {editingEvent ? 'Salva Modifiche' : 'Crea Evento'}
               </button>
             </div>
           </div>
         </div>
       )}
 
+      {/* Modal Nuova Abitudine */}
       {showHabitModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className={`${cardClass} rounded-xl p-6 max-w-md w-full`}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xl font-bold">Nuova Abitudine</h3>
-              <button onClick={() => setShowHabitModal(false)}>
+              <button onClick={() => {
+                setShowHabitModal(false);
+                setNewHabit('');
+              }}>
                 <X className="w-5 h-5" />
               </button>
             </div>
             
             <div className="space-y-4">
-              <div className={`p-3 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-100'} text-sm`}>
-                <p className="mb-2 font-medium">Esempi di input:</p>
-                <ul className="space-y-1 opacity-75">
+              <div className={`p-3 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-blue-50'} text-sm`}>
+                <p className="mb-2 font-medium flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4" />
+                  Esempi di input:
+                </p>
+                <ul className="space-y-1 opacity-75 text-xs">
                   <li>• "lavoro dal lunedì al venerdì dalle 9:00 alle 17:00"</li>
                   <li>• "studio tutti i giorni dalle 18:00 alle 20:00"</li>
                   <li>• "palestra lunedì, mercoledì, venerdì dalle 19 alle 20:30"</li>
@@ -1330,16 +1481,20 @@ const CalendarioAI = () => {
                 </ul>
               </div>
               
-              <textarea
-                placeholder="Descrivi la tua abitudine in linguaggio naturale..."
-                value={newHabit}
-                onChange={(e) => setNewHabit(e.target.value)}
-                className={`w-full px-4 py-2 rounded-lg border ${borderClass} ${darkMode ? 'bg-gray-700' : 'bg-white'} focus:outline-none focus:ring-2 focus:ring-blue-500 h-32`}
-              />
+              <div>
+                <label className="block text-sm font-medium mb-2">Descrivi la tua abitudine</label>
+                <textarea
+                  placeholder="Es: palestra dal lunedì al venerdì dalle 18:00 alle 19:30"
+                  value={newHabit}
+                  onChange={(e) => setNewHabit(e.target.value)}
+                  className={`w-full px-4 py-3 rounded-lg border ${borderClass} ${darkMode ? 'bg-gray-700' : 'bg-white'} focus:outline-none focus:ring-2 focus:ring-blue-500 h-32`}
+                />
+              </div>
               
               <button
                 onClick={addHabit}
-                className="w-full py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
+                disabled={!newHabit.trim()}
+                className="w-full py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Crea Abitudine
               </button>
@@ -1348,6 +1503,7 @@ const CalendarioAI = () => {
         </div>
       )}
 
+      {/* Modal Impostazioni */}
       {showSettings && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className={`${cardClass} rounded-xl p-6 max-w-md w-full`}>
@@ -1365,7 +1521,7 @@ const CalendarioAI = () => {
                     <Settings className="w-5 h-5" />
                   </div>
                   <div>
-                    <div className="font-semibold">Dark Mode</div>
+                    <div className="font-semibold">Tema Scuro</div>
                     <div className="text-sm opacity-60">Attiva il tema scuro</div>
                   </div>
                 </div>
@@ -1387,6 +1543,7 @@ const CalendarioAI = () => {
         </div>
       )}
 
+      {/* Dialog Conferma */}
       {showConfirmDialog && confirmAction && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className={`${cardClass} rounded-xl p-6 max-w-md w-full`}>
@@ -1398,7 +1555,7 @@ const CalendarioAI = () => {
                   setShowConfirmDialog(false);
                   setConfirmAction(null);
                 }}
-                className={`flex-1 py-2 rounded-lg border ${borderClass} hover:bg-gray-100 transition ${darkMode ? 'hover:bg-gray-700' : ''}`}
+                className={`flex-1 py-2 rounded-lg border ${borderClass} hover:${darkMode ? 'bg-gray-700' : 'bg-gray-100'} transition`}
               >
                 Annulla
               </button>
@@ -1416,4 +1573,8 @@ const CalendarioAI = () => {
   );
 };
 
-export default CalendarioAI;
+export default CalendarioAI; style={{ backgroundColor: darkMode ? '#374151' : '#f3f4f6' }}>
+                        <div className="text-2xl font-bold text-blue-500">{events.filter(e => !e.fromHabit).length}</div>
+                        <div className="text-sm opacity-60">Eventi Manuali</div>
+                      </div>
+                      <div className="text-center p-3 rounded-lg"
