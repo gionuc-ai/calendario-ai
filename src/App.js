@@ -44,10 +44,11 @@ const CalendarioAI = () => {
   const [chatMessages, setChatMessages] = useState([
     { 
       role: 'assistant', 
-      content: '👋 Ciao! Sono il tuo assistente calendario intelligente.\n\nPosso aiutarti a:\n• Trovare il momento migliore per un nuovo impegno\n• Analizzare i tuoi giorni più liberi o occupati\n• Suggerirti quando programmare attività\n• Gestire il tuo tempo in modo ottimale\n\nProva a chiedermi: "Quando posso inserire una riunione questa settimana?" oppure "Quali sono i miei giorni più liberi?"' 
+      content: '👋 Ciao! Sono il tuo assistente calendario intelligente.\n\nPosso aiutarti a:\n• Trovare il momento migliore per un nuovo impegno\n• Analizzare i tuoi giorni più liberi o occupati\n• Aggiungere eventi al calendario per te\n• Creare routine ottimizzate per i tuoi impegni\n• Eliminare eventi su richiesta\n• Gestire il tuo tempo in modo ottimale\n\nProva a chiedermi:\n"Aggiungi riunione domani alle 15"\n"Voglio studiare 3 ore al giorno per una settimana"' 
     }
   ]);
   const [chatInput, setChatInput] = useState('');
+  const [pendingRoutine, setPendingRoutine] = useState(null);
   
   const [newEvent, setNewEvent] = useState({
     title: '',
@@ -521,9 +522,232 @@ const CalendarioAI = () => {
     return slots;
   }, [events]);
 
+  const calculateEndTime = (startTime, durationMinutes) => {
+    const [hours, minutes] = startTime.split(':').map(Number);
+    const totalMinutes = hours * 60 + minutes + durationMinutes;
+    const endHours = Math.floor(totalMinutes / 60);
+    const endMinutes = totalMinutes % 60;
+    return `${String(endHours).padStart(2, '0')}:${String(endMinutes).padStart(2, '0')}`;
+  };
+
   const processAICommand = useCallback((message) => {
     const lower = message.toLowerCase();
     const { weekEvents, dayAnalysis } = analyzeCalendar();
+
+    // Aggiungi evento direttamente
+    if (lower.includes('aggiungi') || lower.includes('inserisci') || lower.includes('crea evento')) {
+      const titleMatch = message.match(/(?:aggiungi|inserisci|crea evento)\s+(.+?)(?:\s+(?:il|domani|dopodomani|oggi|alle?)|\s*$)/i);
+      const title = titleMatch ? titleMatch[1].trim() : '';
+      
+      let targetDate = '';
+      const today = new Date();
+      
+      if (lower.includes('oggi')) {
+        targetDate = today.toISOString().split('T')[0];
+      } else if (lower.includes('domani')) {
+        const tomorrow = new Date(today);
+        tomorrow.setDate(today.getDate() + 1);
+        targetDate = tomorrow.toISOString().split('T')[0];
+      } else if (lower.includes('dopodomani')) {
+        const dayAfter = new Date(today);
+        dayAfter.setDate(today.getDate() + 2);
+        targetDate = dayAfter.toISOString().split('T')[0];
+      } else {
+        const dateMatch = message.match(/(?:il\s+)?(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?/);
+        if (dateMatch) {
+          const year = dateMatch[3] ? (dateMatch[3].length === 2 ? `20${dateMatch[3]}` : dateMatch[3]) : today.getFullYear();
+          targetDate = `${year}-${dateMatch[2].padStart(2, '0')}-${dateMatch[1].padStart(2, '0')}`;
+        } else {
+          targetDate = today.toISOString().split('T')[0];
+        }
+      }
+      
+      const timeMatch = message.match(/(?:alle?|ore)\s+(\d{1,2})(?::(\d{2}))?(?:\s*[-–]\s*(\d{1,2})(?::(\d{2}))?)?/i);
+      let startTime = '';
+      let endTime = '';
+      
+      if (timeMatch) {
+        startTime = `${timeMatch[1].padStart(2, '0')}:${timeMatch[2] || '00'}`;
+        if (timeMatch[3]) {
+          endTime = `${timeMatch[3].padStart(2, '0')}:${timeMatch[4] || '00'}`;
+        }
+      }
+      
+      let category = 'personale';
+      if (lower.includes('lavoro') || lower.includes('riunione') || lower.includes('meeting')) {
+        category = 'lavoro';
+      } else if (lower.includes('sport') || lower.includes('palestra') || lower.includes('allenamento')) {
+        category = 'sport';
+      } else if (lower.includes('studio') || lower.includes('lezione') || lower.includes('università')) {
+        category = 'studio';
+      }
+      
+      if (!title) {
+        return '⚠️ Non ho capito il titolo dell\'evento. Prova con: "Aggiungi riunione domani alle 15"';
+      }
+      
+      const newEventObj = {
+        id: Date.now(),
+        title,
+        date: targetDate,
+        time: startTime,
+        endTime: endTime,
+        category,
+        description: 'Creato dall\'assistente AI',
+        fromHabit: false
+      };
+      
+      setEvents(prev => [...prev, newEventObj]);
+      
+      const dateFormatted = new Date(targetDate).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
+      return `✅ **Evento aggiunto con successo!**\n\n📌 **${title}**\n📅 ${dateFormatted}${startTime ? `\n🕐 ${startTime}${endTime ? ` - ${endTime}` : ''}` : ''}\n🏷️ Categoria: ${category}\n\nL'evento è stato aggiunto al tuo calendario!`;
+    }
+
+    // Suggerisci e crea routine
+    if ((lower.includes('voglio') || lower.includes('vorrei') || lower.includes('devo')) && 
+        (lower.includes('studiare') || lower.includes('allenarmi') || lower.includes('lavorare') || 
+         lower.includes('ore al giorno') || lower.includes('minuti al giorno'))) {
+      
+      const activityMatch = message.match(/(studiare|allenarmi|lavorare|fare\s+\w+)/i);
+      const activity = activityMatch ? activityMatch[1] : 'attività';
+      
+      const durationMatch = message.match(/(\d+)\s*(ora|ore|h|minuti|min)/i);
+      const durationMinutes = durationMatch ? 
+        (durationMatch[2].includes('ora') || durationMatch[2].includes('h') ? 
+          parseInt(durationMatch[1]) * 60 : 
+          parseInt(durationMatch[1])) : 60;
+      
+      const periodMatch = message.match(/(?:per|in)\s+(\d+)\s*(settimana|settimane|giorno|giorni|mese|mesi)/i);
+      let days = 7;
+      if (periodMatch) {
+        const num = parseInt(periodMatch[1]);
+        const unit = periodMatch[2].toLowerCase();
+        if (unit.includes('giorno') || unit.includes('giorni')) {
+          days = num;
+        } else if (unit.includes('settimana') || unit.includes('settimane')) {
+          days = num * 7;
+        } else if (unit.includes('mese') || unit.includes('mesi')) {
+          days = num * 30;
+        }
+      }
+      
+      let category = 'personale';
+      if (activity.toLowerCase().includes('studio')) {
+        category = 'studio';
+      } else if (activity.toLowerCase().includes('allena') || activity.toLowerCase().includes('sport')) {
+        category = 'sport';
+      } else if (activity.toLowerCase().includes('lavor')) {
+        category = 'lavoro';
+      }
+      
+      const today = new Date();
+      const suggestions = [];
+      
+      for (let i = 0; i < days; i++) {
+        const checkDate = new Date(today);
+        checkDate.setDate(today.getDate() + i);
+        const dateStr = checkDate.toISOString().split('T')[0];
+        
+        const slots = findFreeSlots(dateStr);
+        const suitableSlot = slots.find(s => s.duration >= durationMinutes);
+        
+        if (suitableSlot) {
+          suggestions.push({
+            date: dateStr,
+            dateObj: checkDate,
+            startTime: suitableSlot.start,
+            endTime: calculateEndTime(suitableSlot.start, durationMinutes),
+            duration: durationMinutes
+          });
+        }
+      }
+      
+      if (suggestions.length === 0) {
+        return `❌ Non ho trovato slot sufficienti per ${activity} ${durationMinutes >= 60 ? Math.floor(durationMinutes/60) + ' ore' : durationMinutes + ' minuti'} al giorno.\n\nProva a:\n• Ridurre la durata dell'attività\n• Estendere il periodo\n• Riorganizzare gli impegni esistenti`;
+      }
+      
+      const routine = {
+        activity,
+        category,
+        durationMinutes,
+        days,
+        suggestions
+      };
+      
+      setPendingRoutine(routine);
+      
+      let response = `🎯 **Ho analizzato il tuo calendario!**\n\nPer ${activity} ${durationMinutes >= 60 ? Math.floor(durationMinutes/60) + 'h' : durationMinutes + 'min'} al giorno per ${days} giorni, ho trovato ${suggestions.length} slot ottimali:\n\n`;
+      
+      suggestions.slice(0, 7).forEach((slot, idx) => {
+        const dayName = slot.dateObj.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'short' });
+        response += `${idx + 1}. **${dayName}**: ${slot.startTime} - ${slot.endTime}\n`;
+      });
+      
+      if (suggestions.length > 7) {
+        response += `\n...e altri ${suggestions.length - 7} giorni\n`;
+      }
+      
+      response += '\n✅ **Vuoi che aggiunga questi eventi al calendario?**\nRispondi "sì" o "conferma" per procedere.';
+      
+      return response;
+    }
+
+    // Conferma routine
+    if (pendingRoutine && (lower.includes('sì') || lower.includes('si') || lower.includes('conferma') || lower.includes('ok') || lower.includes('vai'))) {
+      const newEventsArr = pendingRoutine.suggestions.map(slot => ({
+        id: Date.now() + Math.random(),
+        title: pendingRoutine.activity.charAt(0).toUpperCase() + pendingRoutine.activity.slice(1),
+        date: slot.date,
+        time: slot.startTime,
+        endTime: slot.endTime,
+        category: pendingRoutine.category,
+        description: 'Routine creata dall\'assistente AI',
+        fromHabit: false
+      }));
+      
+      setEvents(prev => [...prev, ...newEventsArr]);
+      setPendingRoutine(null);
+      
+      return `✅ **Perfetto! Ho aggiunto ${newEventsArr.length} eventi al tuo calendario!**\n\n📅 La tua routine di ${pendingRoutine.activity} è stata programmata per i prossimi ${pendingRoutine.days} giorni.\n\nPuoi modificarli o eliminarli in qualsiasi momento dal calendario.`;
+    }
+
+    // Annulla routine
+    if (pendingRoutine && (lower.includes('no') || lower.includes('annulla') || lower.includes('cancella'))) {
+      setPendingRoutine(null);
+      return 'Ok, ho annullato la creazione della routine. Fammi sapere se vuoi provare con altri parametri!';
+    }
+
+    // Elimina eventi
+    if (lower.includes('elimina') || lower.includes('rimuovi') || lower.includes('cancella')) {
+      const searchTerm = message.replace(/elimina|rimuovi|cancella|evento|eventi|tutti|gli|le|la|il/gi, '').trim();
+      
+      if (lower.includes('tutti') && (lower.includes('eventi') || lower.includes('event'))) {
+        const manualEvents = events.filter(e => !e.fromHabit);
+        if (manualEvents.length === 0) {
+          return 'Non ci sono eventi manuali da eliminare.';
+        }
+        setEvents(prev => prev.filter(e => e.fromHabit));
+        return `✅ Ho eliminato tutti i ${manualEvents.length} eventi manuali dal calendario.`;
+      }
+      
+      if (searchTerm) {
+        const toDelete = events.filter(e => 
+          !e.fromHabit && e.title.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+        
+        if (toDelete.length === 0) {
+          return `Non ho trovato eventi corrispondenti a "${searchTerm}".`;
+        }
+        
+        setEvents(prev => prev.filter(e => 
+          e.fromHabit || !e.title.toLowerCase().includes(searchTerm.toLowerCase())
+        ));
+        
+        return `✅ Ho eliminato ${toDelete.length} evento/i contenente/i "${searchTerm}".`;
+      }
+      
+      return 'Specifica quale evento vuoi eliminare. Es: "Elimina riunione" o "Elimina tutti gli eventi"';
+    }
 
     if (lower.includes('giorni') && (lower.includes('liberi') || lower.includes('libero') || lower.includes('disponibil'))) {
       const sortedDays = Object.entries(dayAnalysis)
@@ -629,8 +853,8 @@ const CalendarioAI = () => {
       return 'Non ho trovato eventi corrispondenti alla tua ricerca.';
     }
 
-    return `🤖 **Come posso aiutarti?**\n\nProva a chiedermi:\n\n📅 "Quali sono i miei giorni più liberi?"\n📊 "Quali giorni sono più occupati?"\n🎯 "Quando posso inserire una riunione di 2 ore?"\n📈 "Fammi un'analisi della settimana"\n🔍 "Cerca evento [nome]"\n\nSono qui per ottimizzare il tuo tempo!`;
-  }, [analyzeCalendar, findFreeSlots, events]);
+    return `🤖 **Come posso aiutarti?**\n\nProva a chiedermi:\n\n✏️ "Aggiungi riunione domani alle 15"\n📝 "Voglio studiare 3 ore al giorno per una settimana"\n📅 "Quali sono i miei giorni più liberi?"\n📊 "Quali giorni sono più occupati?"\n🎯 "Quando posso inserire una riunione di 2 ore?"\n📈 "Fammi un'analisi della settimana"\n🔍 "Cerca evento [nome]"\n🗑️ "Elimina riunione"\n\nSono qui per ottimizzare il tuo tempo!`;
+  }, [analyzeCalendar, findFreeSlots, events, pendingRoutine, calculateEndTime]);
 
   const sendMessage = () => {
     if (chatInput.trim()) {
@@ -1015,7 +1239,8 @@ const CalendarioAI = () => {
                         
                         return (
                           <div 
-                            key={i} 
+                            key={i
+key={i} 
                             onClick={() => {
                               setCurrentDate(day);
                               setViewMode('day');
@@ -1349,7 +1574,7 @@ const CalendarioAI = () => {
                   </button>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {['Giorni liberi?', 'Analisi settimana', 'Quando inserire riunione?'].map(quick => (
+                  {['Giorni liberi?', 'Analisi settimana', 'Aggiungi riunione domani alle 15', 'Voglio studiare 2 ore al giorno per 7 giorni'].map(quick => (
                     <button
                       key={quick}
                       onClick={() => {
