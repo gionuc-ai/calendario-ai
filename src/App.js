@@ -1239,8 +1239,7 @@ const CalendarioAI = () => {
                         
                         return (
                           <div 
-                            key={i
-key={i} 
+                            key={i} 
                             onClick={() => {
                               setCurrentDate(day);
                               setViewMode('day');
