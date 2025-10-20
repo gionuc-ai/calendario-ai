@@ -156,109 +156,138 @@ const CalendarioAI = () => {
   };
 
   const parseHabitInput = (input) => {
-    const lowerInput = input.toLowerCase();
-    const habit = {
-      id: Date.now(),
-      original: input,
-      active: true,
-      title: '',
-      days: [],
-      startTime: '',
-      endTime: '',
-      startDate: '',
-      endDate: '',
-      category: 'personale'
-    };
+  const lowerInput = input.toLowerCase();
+  const habit = {
+    id: Date.now(),
+    original: input,
+    active: true,
+    title: '',
+    days: [],
+    startTime: '',
+    endTime: '',
+    startDate: '',
+    endDate: '',
+    category: 'personale'
+  };
 
-    const titleMatch = input.match(/^([^d]+?)(?=\s+(?:dal|dalle|tutti|lunedì|martedì|mercoledì|giovedì|venerdì|sabato|domenica|lunedi|martedi|mercoledi|giovedi|venerdi))/i);
-    if (titleMatch) {
-      habit.title = titleMatch[1].trim();
-    } else {
-      const fallbackMatch = input.match(/^(.+?)(?=\s+dalle)/i);
-      habit.title = fallbackMatch ? fallbackMatch[1].trim() : input.split(' ')[0];
-    }
+  // Estrai il titolo (tutto prima di "dal", "dalle", "tutti" o giorni della settimana)
+  const titleMatch = input.match(/^([^d]+?)(?=\s+(?:dal|dalle|tutti|fino|lunedì|martedì|mercoledì|giovedì|venerdì|sabato|domenica|lunedi|martedi|mercoledi|giovedi|venerdi))/i);
+  if (titleMatch) {
+    habit.title = titleMatch[1].trim();
+  } else {
+    const fallbackMatch = input.match(/^(.+?)(?=\s+dalle)/i);
+    habit.title = fallbackMatch ? fallbackMatch[1].trim() : input.split(' ')[0];
+  }
 
-    const dayMap = {
-      'lunedì': 1, 'lunedi': 1,
-      'martedì': 2, 'martedi': 2,
-      'mercoledì': 3, 'mercoledi': 3,
-      'giovedì': 4, 'giovedi': 4,
-      'venerdì': 5, 'venerdi': 5,
-      'sabato': 6,
-      'domenica': 0
-    };
+  const dayMap = {
+    'lunedì': 1, 'lunedi': 1,
+    'martedì': 2, 'martedi': 2,
+    'mercoledì': 3, 'mercoledi': 3,
+    'giovedì': 4, 'giovedi': 4,
+    'venerdì': 5, 'venerdi': 5,
+    'sabato': 6,
+    'domenica': 0
+  };
 
-    if (lowerInput.includes('tutti i giorni') || lowerInput.includes('ogni giorno')) {
-      habit.days = [0, 1, 2, 3, 4, 5, 6];
-    } else if (lowerInput.match(/dal\s+(lunedì|lunedi|martedì|martedi|mercoledì|mercoledi|giovedì|giovedi|venerdì|venerdi|sabato|domenica)\s+al(la)?\s+(lunedì|lunedi|martedì|martedi|mercoledì|mercoledi|giovedì|giovedi|venerdì|venerdi|sabato|domenica)/)) {
-      const daysMatch = lowerInput.match(/dal\s+(lunedì|lunedi|martedì|martedi|mercoledì|mercoledi|giovedì|giovedi|venerdì|venerdi|sabato|domenica)\s+al(la)?\s+(lunedì|lunedi|martedì|martedi|mercoledì|mercoledi|giovedì|giovedi|venerdì|venerdi|sabato|domenica)/);
-      if (daysMatch) {
-        const startDay = dayMap[daysMatch[1]];
-        const endDay = dayMap[daysMatch[3]];
-        
-        if (startDay <= endDay) {
-          for (let d = startDay; d <= endDay; d++) {
-            habit.days.push(d);
-          }
-        } else {
-          for (let d = startDay; d <= 6; d++) {
-            habit.days.push(d);
-          }
-          for (let d = 0; d <= endDay; d++) {
-            habit.days.push(d);
-          }
+  // Gestisci "tutti i giorni" o "ogni giorno"
+  if (lowerInput.includes('tutti i giorni') || lowerInput.includes('ogni giorno')) {
+    habit.days = [0, 1, 2, 3, 4, 5, 6];
+  }
+  // Gestisci range "dal lunedì al venerdì"
+  else if (lowerInput.match(/dal\s+(lunedì|lunedi|martedì|martedi|mercoledì|mercoledi|giovedì|giovedi|venerdì|venerdi|sabato|domenica)\s+al(la)?\s+(lunedì|lunedi|martedì|martedi|mercoledì|mercoledi|giovedì|giovedi|venerdì|venerdi|sabato|domenica)/)) {
+    const daysMatch = lowerInput.match(/dal\s+(lunedì|lunedi|martedì|martedi|mercoledì|mercoledi|giovedì|giovedi|venerdì|venerdi|sabato|domenica)\s+al(la)?\s+(lunedì|lunedi|martedì|martedi|mercoledì|mercoledi|giovedì|giovedi|venerdì|venerdi|sabato|domenica)/);
+    if (daysMatch) {
+      const startDay = dayMap[daysMatch[1]];
+      const endDay = dayMap[daysMatch[3]];
+      
+      if (startDay <= endDay) {
+        for (let d = startDay; d <= endDay; d++) {
+          habit.days.push(d);
+        }
+      } else {
+        for (let d = startDay; d <= 6; d++) {
+          habit.days.push(d);
+        }
+        for (let d = 0; d <= endDay; d++) {
+          habit.days.push(d);
         }
       }
-    } else {
-      Object.keys(dayMap).forEach(day => {
-        if (lowerInput.includes(day)) {
-          const dayNum = dayMap[day];
-          if (!habit.days.includes(dayNum)) {
-            habit.days.push(dayNum);
-          }
+    }
+  }
+  // Gestisci giorni specifici elencati (lunedì, martedì e venerdì)
+  else {
+    // Cerca pattern tipo "lunedì, martedì e venerdì" o "lunedì martedì venerdì"
+    const dayPattern = new RegExp(`(${Object.keys(dayMap).join('|')})`, 'gi');
+    const foundDays = input.match(dayPattern);
+    
+    if (foundDays) {
+      foundDays.forEach(day => {
+        const dayNum = dayMap[day.toLowerCase()];
+        if (dayNum !== undefined && !habit.days.includes(dayNum)) {
+          habit.days.push(dayNum);
         }
       });
     }
+  }
 
-    if (habit.days.length === 0) {
-      habit.days = [1, 2, 3, 4, 5];
-    }
+  // Se non sono stati trovati giorni, usa lun-ven come default
+  if (habit.days.length === 0) {
+    habit.days = [1, 2, 3, 4, 5];
+  }
 
-    const timeMatch = input.match(/dalle?\s+(\d{1,2}):?(\d{2})?\s+alle?\s+(\d{1,2}):?(\d{2})?/i);
-    if (timeMatch) {
-      habit.startTime = `${timeMatch[1].padStart(2, '0')}:${timeMatch[2] || '00'}`;
-      habit.endTime = `${timeMatch[3].padStart(2, '0')}:${timeMatch[4] || '00'}`;
-    }
+  // Estrai orari
+  const timeMatch = input.match(/dalle?\s+(\d{1,2}):?(\d{2})?\s+alle?\s+(\d{1,2}):?(\d{2})?/i);
+  if (timeMatch) {
+    habit.startTime = `${timeMatch[1].padStart(2, '0')}:${timeMatch[2] || '00'}`;
+    habit.endTime = `${timeMatch[3].padStart(2, '0')}:${timeMatch[4] || '00'}`;
+  }
 
-    const dateMatch = input.match(/dal\s+(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?\s+al\s+(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?/);
-    if (dateMatch) {
-      const currentYear = new Date().getFullYear();
-      const startYear = dateMatch[3] ? (dateMatch[3].length === 2 ? `20${dateMatch[3]}` : dateMatch[3]) : currentYear;
-      const endYear = dateMatch[6] ? (dateMatch[6].length === 2 ? `20${dateMatch[6]}` : dateMatch[6]) : currentYear;
-      
-      habit.startDate = `${startYear}-${dateMatch[2].padStart(2, '0')}-${dateMatch[1].padStart(2, '0')}`;
-      habit.endDate = `${endYear}-${dateMatch[5].padStart(2, '0')}-${dateMatch[4].padStart(2, '0')}`;
-      
-      if (new Date(habit.startDate) > new Date(habit.endDate)) {
-        throw new Error('La data di inizio deve essere precedente alla data di fine');
-      }
-    } else {
-      const today = new Date();
-      const endOfYear = new Date(today.getFullYear(), 11, 31);
-      habit.startDate = today.toISOString().split('T')[0];
-      habit.endDate = endOfYear.toISOString().split('T')[0];
-    }
+  // Estrai date con pattern più flessibili
+  // Pattern 1: "dal 15/01 al 30/06" o "dal 15/01/2024 al 30/06/2024"
+  const dateRangeMatch = input.match(/dal\s+(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?\s+al\s+(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?/i);
+  
+  // Pattern 2: "fino al 20/11" o "fino al 20/11/2024"
+  const endDateMatch = input.match(/fino\s+al\s+(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?/i);
+  
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  
+  if (dateRangeMatch) {
+    // Ha sia data inizio che data fine specificate
+    const startYear = dateRangeMatch[3] ? (dateRangeMatch[3].length === 2 ? `20${dateRangeMatch[3]}` : dateRangeMatch[3]) : currentYear;
+    const endYear = dateRangeMatch[6] ? (dateRangeMatch[6].length === 2 ? `20${dateRangeMatch[6]}` : dateRangeMatch[6]) : currentYear;
+    
+    habit.startDate = `${startYear}-${dateRangeMatch[2].padStart(2, '0')}-${dateRangeMatch[1].padStart(2, '0')}`;
+    habit.endDate = `${endYear}-${dateRangeMatch[5].padStart(2, '0')}-${dateRangeMatch[4].padStart(2, '0')}`;
+  } else if (endDateMatch) {
+    // Ha solo "fino al" - inizia da oggi
+    const endYear = endDateMatch[3] ? (endDateMatch[3].length === 2 ? `20${endDateMatch[3]}` : endDateMatch[3]) : currentYear;
+    
+    habit.startDate = today.toISOString().split('T')[0];
+    habit.endDate = `${endYear}-${endDateMatch[2].padStart(2, '0')}-${endDateMatch[1].padStart(2, '0')}`;
+  } else {
+    // Nessuna data specificata - usa oggi fino a fine anno
+    const endOfYear = new Date(currentYear, 11, 31);
+    habit.startDate = today.toISOString().split('T')[0];
+    habit.endDate = endOfYear.toISOString().split('T')[0];
+  }
+  
+  // Validazione date
+  if (new Date(habit.startDate) > new Date(habit.endDate)) {
+    throw new Error('La data di inizio deve essere precedente alla data di fine');
+  }
 
-    if (lowerInput.includes('palestra') || lowerInput.includes('gym') || lowerInput.includes('allenamento') || lowerInput.includes('sport')) {
-      habit.category = 'sport';
-    } else if (lowerInput.includes('studio') || lowerInput.includes('lezione') || lowerInput.includes('università')) {
-      habit.category = 'studio';
-    } else if (lowerInput.includes('lavoro') || lowerInput.includes('ufficio') || lowerInput.includes('meeting')) {
-      habit.category = 'lavoro';
-    }
+  // Rileva categoria
+  if (lowerInput.includes('palestra') || lowerInput.includes('gym') || lowerInput.includes('allenamento') || lowerInput.includes('sport')) {
+    habit.category = 'sport';
+  } else if (lowerInput.includes('studio') || lowerInput.includes('lezione') || lowerInput.includes('università') || lowerInput.includes('corso')) {
+    habit.category = 'studio';
+  } else if (lowerInput.includes('lavoro') || lowerInput.includes('ufficio') || lowerInput.includes('meeting')) {
+    habit.category = 'lavoro';
+  }
 
-    return habit;
-  };
+  return habit;
+};
 
   const generateEventsFromHabit = useCallback((habit) => {
     if (!habit.active || !habit.startDate || !habit.endDate) return [];
