@@ -3,6 +3,7 @@ import { Calendar, Clock, TrendingUp, Settings, Plus, X, Edit2, Power, Trash2, M
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
+import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 
 const firebaseConfig = {
   apiKey: "AIzaSyCVBoIl4nVxPOi7qgq1d0wp_n5c4GqygxA",
@@ -16,6 +17,7 @@ const firebaseConfig = {
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 const auth = getAuth(app);
 const db = getFirestore(app);
+const messaging = getMessaging(app);
 
 const CalendarioAI = () => {
   const [user, setUser] = useState(null);
@@ -61,23 +63,98 @@ const CalendarioAI = () => {
   
   const [newHabit, setNewHabit] = useState('');
 
-  const categories = {
-    lavoro: '#3b82f6',
-    sport: '#10b981',
-    studio: '#f59e0b',
-    personale: '#8b5cf6'
-  };
+  // Stati per notifiche
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [notificationToken, setNotificationToken] = useState(null);
+  const [upcomingNotifications, setUpcomingNotifications] = useState([]);
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        await loadUserData(currentUser.uid);
+  const categories = {
+  lavoro: '#3b82f6',
+  sport: '#10b981',
+  studio: '#f59e0b',
+  personale: '#8b5cf6'
+};
+
+// ===== SISTEMA NOTIFICHE =====
+
+// Chiede il permesso per le notifiche
+const requestNotificationPermission = async () => {
+  try {
+    // Chiedi il permesso al browser
+    const permission = await Notification.requestPermission();
+    
+    if (permission === 'granted') {
+      console.log('✅ Permesso notifiche concesso');
+      
+      // IMPORTANTE: Sostituisci questa stringa con quella che hai copiato da Firebase
+      const vapidKey = 'BHX-ALIu00WsodbHa4KQ8L0JuIFjIBvqELjXcjRY67mmbnNqtIw6_Lc6Ck033wez-zAPHvkylX9fiUZ2PERkLig';
+      
+      // Ottieni il token del dispositivo
+      const token = await getToken(messaging, { vapidKey });
+      
+      if (token) {
+        console.log('📱 Token notifiche:', token);
+        setNotificationToken(token);
+        setNotificationsEnabled(true);
+        
+        // Salva il token nel database
+        if (user) {
+          await setDoc(doc(db, 'users', user.uid), {
+            notificationToken: token,
+            notificationsEnabled: true
+          }, { merge: true });
+        }
+        
+        return true;
       }
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
+    } else {
+      console.log('❌ Permesso notifiche negato');
+      alert('Per ricevere promemoria, abilita le notifiche nelle impostazioni del browser');
+      return false;
+    }
+  } catch (error) {
+    console.error('Errore richiesta notifiche:', error);
+    alert('Errore nell\'abilitare le notifiche. Riprova.');
+    return false;
+  }
+};
+
+// Ascolta le notifiche quando l'app è aperta
+useEffect(() => {
+  const unsubscribe = onMessage(messaging, (payload) => {
+    console.log('📬 Notifica ricevuta:', payload);
+    
+    // Mostra notifica nel browser anche se l'app è aperta
+    if (Notification.permission === 'granted') {
+      new Notification(payload.notification.title, {
+        body: payload.notification.body,
+        icon: '/calendario-icon.png',
+        vibrate: [200, 100, 200]
+      });
+    }
+    
+    // Aggiungi alla lista notifiche in-app
+    setUpcomingNotifications(prev => [...prev, {
+      id: Date.now(),
+      title: payload.notification.title,
+      body: payload.notification.body,
+      timestamp: new Date()
+    }]);
+  });
+  
+  return unsubscribe;
+}, []);
+
+useEffect(() => {
+  const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    setUser(currentUser);
+    if (currentUser) {
+      await loadUserData(currentUser.uid);
+    }
+    setLoading(false);
+  });
+  return () => unsubscribe();
+}, []);
 
   const saveUserData = useCallback(async () => {
     if (!user) return;
