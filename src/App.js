@@ -67,6 +67,12 @@ const CalendarioAI = () => {
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [notificationToken, setNotificationToken] = useState(null);
   const [upcomingNotifications, setUpcomingNotifications] = useState([]);
+  const [reminderTimes, setReminderTimes] = useState({
+    '15min': true,
+    '1hour': false,
+    '1day': false
+  });
+
 
   const categories = {
   lavoro: '#3b82f6',
@@ -76,7 +82,6 @@ const CalendarioAI = () => {
 };
 
 // ===== SISTEMA NOTIFICHE =====
-
 // Chiede il permesso per le notifiche
 const requestNotificationPermission = async () => {
   try {
@@ -118,6 +123,27 @@ const requestNotificationPermission = async () => {
     return false;
   }
 };
+
+// 👇 INSERISCI QUI LA FUNZIONE DELLO STEP 8.1
+// Disabilita le notifiche
+const disableNotifications = async () => {
+  try {
+    setNotificationsEnabled(false);
+    setNotificationToken(null);
+    
+    if (user) {
+      await setDoc(doc(db, 'users', user.uid), {
+        notificationsEnabled: false,
+        notificationToken: null
+      }, { merge: true });
+    }
+    
+    alert('Notifiche disabilitate. Puoi riattivarle in qualsiasi momento.');
+  } catch (error) {
+    console.error('Errore disabilitazione notifiche:', error);
+  }
+};
+// 👆 FINE INSERIMENTO
 
 // Ascolta le notifiche quando l'app è aperta
 useEffect(() => {
@@ -181,7 +207,7 @@ useEffect(() => {
       return () => clearTimeout(timer);
     }
   }, [habits, events, user, saveUserData]);
-
+  
   const loadUserData = async (userId) => {
     try {
       const userDoc = await getDoc(doc(db, 'users', userId));
@@ -190,6 +216,10 @@ useEffect(() => {
         setHabits(data.habits || []);
         setEvents(data.events || []);
         setDarkMode(data.darkMode || false);
+        
+        // Carica impostazioni notifiche (STEP 8.2)
+        setNotificationsEnabled(data.notificationsEnabled || false);
+        setNotificationToken(data.notificationToken || null);
       }
     } catch (error) {
       console.error('Errore nel caricamento dati:', error);
@@ -459,26 +489,33 @@ useEffect(() => {
       const endMinutes = endH * 60 + endM;
       
       if (endMinutes <= startMinutes) {
-        alert('⚠️ L\'orario di fine deve essere successivo all\'orario di inizio');
-        return;
-      }
-    }
-
-    if (editingEvent) {
-      setEvents(prev => prev.map(e => 
-        e.id === editingEvent.id 
-          ? { ...newEvent, id: editingEvent.id, fromHabit: false } 
-          : e
-      ));
-      setEditingEvent(null);
-    } else {
-      setEvents(prev => [...prev, { 
-        ...newEvent, 
-        id: Date.now(), 
-        fromHabit: false,
-        title: newEvent.title.trim()
-      }]);
-    }
+  alert('⚠️ L\'orario di fine deve essere successivo all\'orario di inizio');
+  return;
+}
+}
+if (editingEvent) {
+  setEvents(prev => prev.map(e => 
+    e.id === editingEvent.id 
+      ? { 
+          ...newEvent, 
+          id: editingEvent.id, 
+          fromHabit: false,
+          reminders: reminderTimes,           
+          notificationScheduled: false        
+        } 
+      : e
+  ));
+  setEditingEvent(null);
+} else {
+  setEvents(prev => [...prev, { 
+    ...newEvent, 
+    id: Date.now(), 
+    fromHabit: false,
+    title: newEvent.title.trim(),
+    reminders: reminderTimes,               
+    notificationScheduled: false             
+  }]);
+}
     
     setNewEvent({ 
       title: '', 
@@ -1162,6 +1199,26 @@ useEffect(() => {
           <div className="flex items-center gap-3">
             {saving && <span className="text-xs text-gray-500">Salvataggio...</span>}
             
+            {/* 👇 INSERISCI QUI (STEP 9.2) */}
+            {user && (
+              <button
+                onClick={() => {
+                  const panel = document.getElementById('notificationPanel');
+                  if (panel) {
+                    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+                  }
+                }}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                  notificationsEnabled 
+                    ? 'bg-green-500 text-white hover:bg-green-600' 
+                    : darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'
+                }`}
+              >
+                🔔 <span className="font-medium">{notificationsEnabled ? 'ON' : 'OFF'}</span>
+              </button>
+            )}
+            {/* 👆 FINE INSERIMENTO */}
+            
             <button
               onClick={() => setShowAIPanel(!showAIPanel)}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
@@ -1173,7 +1230,6 @@ useEffect(() => {
               <Zap className="w-5 h-5" />
               <span className="font-medium">Assistente AI</span>
             </button>
-
             <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
               <User className="w-4 h-4" />
               <span className="text-sm">{user.email}</span>
@@ -1698,6 +1754,119 @@ useEffect(() => {
         </div>
       </main>
 
+      {/* 👇 INIZIA INSERIMENTO STEP 9.1 */}
+      {/* Pannello Notifiche */}
+      {user && (
+        <div id="notificationPanel" style={{
+          position: 'fixed',
+          top: '80px',
+          right: '20px',
+          background: darkMode ? '#1f2937' : 'white',
+          padding: '20px',
+          borderRadius: '12px',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+          maxWidth: '300px',
+          zIndex: 1000,
+          display: 'none'
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '15px'
+          }}>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>
+              🔔 Notifiche
+            </h3>
+            <button
+              onClick={() => document.getElementById('notificationPanel').style.display = 'none'}
+              style={{
+                background: 'none',
+                border: 'none',
+                fontSize: '20px',
+                cursor: 'pointer',
+                color: '#999'
+              }}
+            >
+              ×
+            </button>
+          </div>
+
+          {notificationsEnabled ? (
+            <div>
+              <div style={{
+                background: '#d4edda',
+                padding: '12px',
+                borderRadius: '8px',
+                marginBottom: '15px'
+              }}>
+                <p style={{ margin: 0, fontSize: '14px', color: '#155724' }}>
+                  ✅ Notifiche attive
+                </p>
+              </div>
+              
+              <button
+                onClick={disableNotifications}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  background: '#dc3545',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '500'
+                }}
+              >
+                Disattiva notifiche
+              </button>
+
+              {upcomingNotifications.length > 0 && (
+                <div style={{ marginTop: '15px' }}>
+                  <h4 style={{ fontSize: '14px', marginBottom: '10px' }}>Recenti:</h4>
+                  {upcomingNotifications.slice(-3).map(notif => (
+                    <div key={notif.id} style={{
+                      background: darkMode ? '#374151' : '#f8f9fa',
+                      padding: '8px',
+                      borderRadius: '6px',
+                      marginBottom: '8px',
+                      fontSize: '12px'
+                    }}>
+                      <strong>{notif.title}</strong>
+                      <p style={{ margin: '4px 0 0 0', color: '#666' }}>{notif.body}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div>
+              <p style={{ fontSize: '14px', color: '#666', marginBottom: '15px' }}>
+                Ricevi promemoria per i tuoi eventi e un recap mattutino.
+              </p>
+              <button
+                onClick={requestNotificationPermission}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  background: '#007bff',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '500'
+                }}
+              >
+                🔔 Attiva notifiche
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {/* 👆 FINE INSERIMENTO STEP 9.1 */}
+
       {showEventModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className={`${cardClass} rounded-xl p-6 max-w-md w-full`}>
@@ -1771,21 +1940,80 @@ useEffect(() => {
               </div>
               
               <div>
-                <label className="block text-sm font-medium mb-2">Descrizione</label>
-                <textarea
-                  placeholder="Note aggiuntive (opzionale)"
-                  value={newEvent.description}
-                  onChange={(e) => setNewEvent({ ...newEvent, description: e.target.value })}
-                  className={`w-full px-4 py-2 rounded-lg border ${borderClass} ${darkMode ? 'bg-gray-700' : 'bg-white'} focus:outline-none focus:ring-2 focus:ring-blue-500 h-20`}
-                />
-              </div>
-              
-              <button
-                onClick={addEvent}
-                className="w-full py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition font-medium"
-              >
-                {editingEvent ? 'Salva Modifiche' : 'Crea Evento'}
-              </button>
+  <label className="block text-sm font-medium mb-2">Descrizione</label>
+  <textarea
+    placeholder="Note aggiuntive (opzionale)"
+    value={newEvent.description}
+    onChange={(e) => setNewEvent({ ...newEvent, description: e.target.value })}
+    className={`w-full px-4 py-2 rounded-lg border ${borderClass} ${darkMode ? 'bg-gray-700' : 'bg-white'} focus:outline-none focus:ring-2 focus:ring-blue-500 h-20`}
+  />
+</div>
+
+{/* 👇 INSERISCI QUI */}
+{/* Sezione Promemoria */}
+<div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #eee' }}>
+  <h4 style={{ fontSize: '14px', marginBottom: '12px', fontWeight: '600' }}>
+    ⏰ Promemoria
+  </h4>
+  
+  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+    <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+      <input
+        type="checkbox"
+        checked={reminderTimes['15min']}
+        onChange={(e) => setReminderTimes({
+          ...reminderTimes,
+          '15min': e.target.checked
+        })}
+        style={{ marginRight: '8px', cursor: 'pointer' }}
+      />
+      <span style={{ fontSize: '14px' }}>15 minuti prima</span>
+    </label>
+
+    <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+      <input
+        type="checkbox"
+        checked={reminderTimes['1hour']}
+        onChange={(e) => setReminderTimes({
+          ...reminderTimes,
+          '1hour': e.target.checked
+        })}
+        style={{ marginRight: '8px', cursor: 'pointer' }}
+      />
+      <span style={{ fontSize: '14px' }}>1 ora prima</span>
+    </label>
+
+    <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+      <input
+        type="checkbox"
+        checked={reminderTimes['1day']}
+        onChange={(e) => setReminderTimes({
+          ...reminderTimes,
+          '1day': e.target.checked
+        })}
+        style={{ marginRight: '8px', cursor: 'pointer' }}
+      />
+      <span style={{ fontSize: '14px' }}>1 giorno prima</span>
+    </label>
+  </div>
+
+  <p style={{ 
+    fontSize: '12px', 
+    color: '#666', 
+    marginTop: '10px',
+    fontStyle: 'italic' 
+  }}>
+    💡 Riceverai una notifica per ogni promemoria selezionato
+  </p>
+</div>
+{/* 👆 FINO A QUI */}
+
+<button
+  onClick={addEvent}
+  className="w-full py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition font-medium"
+>
+  {editingEvent ? 'Salva Modifiche' : 'Crea Evento'}
+</button>
             </div>
           </div>
         </div>
