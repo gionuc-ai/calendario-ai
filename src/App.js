@@ -269,11 +269,29 @@ useEffect(() => {
 const handleGoogleSignIn = async () => {
   try {
     const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
+    
+    // Forza la selezione dell'account
+    provider.setCustomParameters({
+      prompt: 'select_account'
+    });
+    
+    const result = await signInWithPopup(auth, provider);
+    console.log('✅ Login Google riuscito:', result.user.email);
     setShowAuthModal(false);
+    setAuthError('');
   } catch (error) {
-    console.error('Errore Google:', error);
-    setAuthError('Errore durante l\'accesso con Google');
+    console.error('❌ Errore Google completo:', error);
+    
+    // Gestisci diversi tipi di errore
+    if (error.code === 'auth/popup-closed-by-user') {
+      setAuthError('Popup chiuso. Riprova.');
+    } else if (error.code === 'auth/popup-blocked') {
+      setAuthError('Popup bloccato dal browser. Abilita i popup.');
+    } else if (error.code === 'auth/unauthorized-domain') {
+      setAuthError('Dominio non autorizzato. Configura Firebase.');
+    } else {
+      setAuthError('Errore durante l\'accesso con Google. Riprova.');
+    }
   }
 };
 
