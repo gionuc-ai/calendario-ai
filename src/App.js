@@ -1552,188 +1552,32 @@ if (editingEvent) {
                   </div>
                 )}
 
+                // ... codice vista week sopra ...
+
+                )}
+
                 {viewMode === 'day' && (
-  <div>
-    <div className="flex items-center justify-between mb-4">
-      <button onClick={() => navigateDay(-1)} className={`p-2 hover:${darkMode ? 'bg-gray-700' : 'bg-gray-200'} rounded`}>
-        <ChevronLeft className="w-5 h-5" />
-      </button>
-      <h2 className="text-xl font-semibold">
-        {currentDate.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-      </h2>
-      <button onClick={() => navigateDay(1)} className={`p-2 hover:${darkMode ? 'bg-gray-700' : 'bg-gray-200'} rounded`}>
-        <ChevronRight className="w-5 h-5" />
-      </button>
-    </div>
-    
-    {/* Timeline View ispirata ad Apple/Google Calendar */}
-    <div className={`${darkMode ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg overflow-hidden`}>
-      <div className="flex">
-        {/* Colonna Orari */}
-        <div className={`w-20 ${darkMode ? 'bg-gray-800' : 'bg-gray-100'} flex-shrink-0`}>
-          {Array.from({ length: 24 }, (_, i) => (
-            <div 
-              key={i}
-              className={`h-16 border-b ${borderClass} flex items-start justify-end pr-2 pt-1`}
-            >
-              <span className="text-xs opacity-60">
-                {String(i).padStart(2, '0')}:00
-              </span>
-            </div>
-          ))}
-        </div>
-        
-        {/* Colonna Eventi */}
-        <div className="flex-1 relative">
-          {/* Linee orarie */}
-          {Array.from({ length: 24 }, (_, i) => (
-            <div 
-              key={i}
-              className={`h-16 border-b ${borderClass} hover:${darkMode ? 'bg-gray-600' : 'bg-blue-50'} transition cursor-pointer`}
-              onClick={() => {
-                const year = currentDate.getFullYear();
-                const month = String(currentDate.getMonth() + 1).padStart(2, '0');
-                const day = String(currentDate.getDate()).padStart(2, '0');
-                setNewEvent({
-                  title: '',
-                  date: `${year}-${month}-${day}`,
-                  time: `${String(i).padStart(2, '0')}:00`,
-                  endTime: `${String(i + 1).padStart(2, '0')}:00`,
-                  category: 'personale',
-                  description: ''
-                });
-                setEditingEvent(null);
-                setShowEventModal(true);
-              }}
-            />
-          ))}
-          
-          {/* Eventi Posizionati */}
-          {getEventsForDate(currentDate).map(event => {
-            if (!event.time || !event.endTime) return null;
-            
-            const [startH, startM] = event.time.split(':').map(Number);
-            const [endH, endM] = event.endTime.split(':').map(Number);
-            
-            const startMinutes = startH * 60 + startM;
-            const endMinutes = endH * 60 + endM;
-            const durationMinutes = endMinutes - startMinutes;
-            
-            const topPosition = (startMinutes / 60) * 64; // 64px per ora
-            const height = (durationMinutes / 60) * 64;
-            
-            return (
-              <div
-                key={event.id}
-                className={`absolute left-2 right-2 rounded-lg shadow-md overflow-hidden group ${darkMode ? 'bg-gray-600' : 'bg-white'}`}
-                style={{
-                  top: `${topPosition}px`,
-                  height: `${Math.max(height, 32)}px`,
-                  borderLeft: `4px solid ${categories[event.category] || '#8b5cf6'}`,
-                  zIndex: 10
-                }}
-              >
-                <div className="p-2 h-full flex flex-col justify-between">
-                  <div className="flex-1 min-h-0">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-semibold text-sm truncate">
-                          {event.title}
-                        </h3>
-                        <div className="flex items-center gap-1 text-xs opacity-75 mt-1">
-                          <Clock className="w-3 h-3 flex-shrink-0" />
-                          <span className="truncate">
-                            {event.time} - {event.endTime}
-                          </span>
-                        </div>
-                      </div>
-                      
-                      {!event.fromHabit && (
-                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              editEvent(event);
-                            }}
-                            className={`p-1 hover:${darkMode ? 'bg-gray-500' : 'bg-gray-200'} rounded transition`}
-                            title="Modifica"
-                          >
-                            <Edit2 className="w-3 h-3" />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteEvent(event.id);
-                            }}
-                            className={`p-1 hover:${darkMode ? 'bg-gray-500' : 'bg-gray-200'} rounded text-red-500 transition`}
-                            title="Elimina"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        </div>
-                      )}
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <button onClick={() => navigateDay(-1)} className={`p-2 hover:${darkMode ? 'bg-gray-700' : 'bg-gray-200'} rounded`}>
+                        <ChevronLeft className="w-5 h-5" />
+                      </button>
+                      <h2 className="text-xl font-semibold">
+                        {currentDate.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                      </h2>
+                      <button onClick={() => navigateDay(1)} className={`p-2 hover:${darkMode ? 'bg-gray-700' : 'bg-gray-200'} rounded`}>
+                        <ChevronRight className="w-5 h-5" />
+                      </button>
                     </div>
                     
-                    {event.description && height > 60 && (
-                      <p className="text-xs opacity-60 mt-1 line-clamp-2">
-                        {event.description}
-                      </p>
-                    )}
+                    {/* Timeline View ispirata ad Apple/Google Calendar */}
+                    <div className={`${darkMode ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg overflow-hidden`}>
+                      {/* ... tutto il codice della timeline ... */}
+                    </div>
                   </div>
-                  
-                  <div className="flex items-center justify-between mt-1">
-                    <span 
-                      className="text-xs px-2 py-0.5 rounded-full font-medium"
-                      style={{ 
-                        backgroundColor: (categories[event.category] || '#8b5cf6') + '20',
-                        color: categories[event.category] || '#8b5cf6'
-                      }}
-                    >
-                      {event.category}
-                    </span>
-                    {event.fromHabit && (
-                      <span className="text-xs opacity-40">
-                        📅 Ricorrente
-                      </span>
-                    )}
-                  </div>
-                </div>
+                )}
               </div>
-            );
-          })}
-          
-          {/* Linea Ora Corrente */}
-          {isToday(currentDate) && (() => {
-            const now = new Date();
-            const currentMinutes = now.getHours() * 60 + now.getMinutes();
-            const currentPosition = (currentMinutes / 60) * 64;
-            
-            return (
-              <div 
-                className="absolute left-0 right-0 flex items-center pointer-events-none"
-                style={{ top: `${currentPosition}px`, zIndex: 20 }}
-              >
-                <div className="w-3 h-3 rounded-full bg-red-500 -ml-1.5" />
-                <div className="flex-1 h-0.5 bg-red-500" />
-              </div>
-            );
-          })()}
-          
-          {/* Messaggio se non ci sono eventi */}
-          {getEventsForDate(currentDate).length === 0 && (
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="text-center opacity-40">
-                <Calendar className="w-12 h-12 mx-auto mb-2" />
-                <p className="text-sm">Nessun evento</p>
-                <p className="text-xs mt-1">Clicca su un orario per aggiungerne uno</p>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  </div>
-)}
+            )}
 
             {activeTab === 'habits' && (
               <div className={`${cardClass} rounded-xl p-6 border ${borderClass}`}>
